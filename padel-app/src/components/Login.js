@@ -22,13 +22,7 @@ export default function Login() {
     }}>
       <div style={{ width: '100%', maxWidth: '380px' }}>
         <div style={{ textAlign: 'center', marginBottom: '32px' }}>
-          <div style={{
-            width: 56, height: 56, borderRadius: 16,
-            background: 'linear-gradient(135deg, var(--accent), var(--accent2))',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            margin: '0 auto 16px', fontSize: 24
-          }}>🎾</div>
-          <h1 style={{ fontSize: 24, fontWeight: 700 }}>Padel Camp</h1>
+          <img src="/LOGO_FINAL_PADEL_CAMP.jpg" alt="Padel Camp" style={{ width: 200, display: 'block', margin: '0 auto 16px', borderRadius: 10 }} />
           <p style={{ color: 'var(--text2)', marginTop: 6, fontSize: 14 }}>Gestión de coaches y clases</p>
         </div>
 
