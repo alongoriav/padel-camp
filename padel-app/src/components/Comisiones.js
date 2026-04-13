@@ -49,6 +49,9 @@ export default function Comisiones() {
   const [resumen, setResumen] = useState([])
   const [promos, setPromos] = useState([])
   const [tabActiva, setTabActiva] = useState('comisiones')
+  const [modalExport, setModalExport] = useState(false)
+  const [coachExport, setCoachExport] = useState('todos')
+  const [exportando, setExportando] = useState(false)
 
   useEffect(() => { fetchData() }, [])
   useEffect(() => { calcResumen() }, [mesSeleccionado, desde, hasta, modoFiltro, coaches, inscripciones, clases])
@@ -56,7 +59,7 @@ export default function Comisiones() {
   const fetchData = async () => {
     const [{ data: cs }, { data: ins }, { data: cl }] = await Promise.all([
       supabase.from('coaches').select('*').order('nombre'),
-      supabase.from('inscripciones').select('*, jugadores(nombre), clases(coach_id, tipo, modalidad, fecha_inicio)'),
+      supabase.from('inscripciones').select('*, jugadores(nombre), clases(coach_id, tipo, modalidad, fecha_inicio, dia, hora)'),
       supabase.from('clases').select('*'),
     ])
     setCoaches(cs || [])
@@ -82,35 +85,32 @@ export default function Comisiones() {
     const res = coaches.map(coach => {
       const insMes = filtrarIns(inscripciones).filter(i => i.clases?.coach_id === coach.id)
       const clasesUnicas = new Set(insMes.map(i => i.clase_id)).size
-
       let ingresoTeorico = 0
       insMes.forEach(i => {
         const modalidad = i.clases?.modalidad
         if (modalidad === 'Promo' || modalidad === 'Cortesía') {
-          const participantesGrupo = insMes.filter(x => x.clase_id === i.clase_id).length
-          ingresoTeorico += calcValorTeorico(modalidad, participantesGrupo)
+          const p = insMes.filter(x => x.clase_id === i.clase_id).length
+          ingresoTeorico += calcValorTeorico(modalidad, p)
         } else {
           ingresoTeorico += i.monto_cobrado || 0
         }
       })
-
       const cobrado = insMes.filter(i => i.pagado).reduce((a, i) => a + (i.monto_cobrado || 0), 0)
       const comision = calcComision(coach, clasesUnicas, ingresoTeorico)
       return { coach, clasesUnicas, ingresoTeorico, cobrado, comision }
     }).filter(r => r.clasesUnicas > 0 || coaches.length <= 6)
-
     setResumen(res)
 
     const promosMes = filtrarIns(inscripciones).filter(i => {
       const m = i.clases?.modalidad
       return m === 'Promo' || m === 'Cortesía'
     }).map(i => {
-      const participantesGrupo = filtrarIns(inscripciones).filter(x => x.clase_id === i.clase_id).length
+      const p = filtrarIns(inscripciones).filter(x => x.clase_id === i.clase_id).length
       return {
         jugador: i.jugadores?.nombre,
         modalidad: i.clases?.modalidad,
         coach: coaches.find(c => c.id === i.clases?.coach_id)?.nombre || '—',
-        valorTeorico: calcValorTeorico(i.clases?.modalidad, participantesGrupo),
+        valorTeorico: calcValorTeorico(i.clases?.modalidad, p),
       }
     })
     setPromos(promosMes)
@@ -123,148 +123,166 @@ export default function Comisiones() {
 
   const labelPeriodo = modoFiltro === 'mes'
     ? mesSeleccionado
-    : desde && hasta ? `${desde} → ${hasta}` : desde ? `Desde ${desde}` : hasta ? `Hasta ${hasta}` : 'Todo'
+    : desde && hasta ? `${desde} al ${hasta}` : desde ? `Desde ${desde}` : hasta ? `Hasta ${hasta}` : 'Todo'
 
-  const generarReporte = () => {
-    const script = document.createElement('script')
-    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'
-    script.onload = () => {
+  const generarPDF = () => {
+    setExportando(true)
+    const cargarJsPDF = () => {
+      if (window.jspdf) { ejecutarPDF(); return }
+      const s = document.createElement('script')
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'
+      s.onload = ejecutarPDF
+      document.head.appendChild(s)
+    }
+
+    const ejecutarPDF = () => {
       const { jsPDF } = window.jspdf
       const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-      const W = 210, margin = 18
-      let y = margin
+      const W = 210, M = 16
+      const fmt2 = (n) => '$' + (n||0).toLocaleString('es-MX', {minimumFractionDigits:0, maximumFractionDigits:0})
 
-      const addText = (text, x, yy, size=10, bold=false, color=[0,0,0]) => {
-        doc.setFontSize(size)
-        doc.setFont('helvetica', bold ? 'bold' : 'normal')
-        doc.setTextColor(...color)
-        doc.text(String(text), x, yy)
+      const txt = (text, x, y, size=9, bold=false, color=[40,50,70], align='left') => {
+        doc.setFontSize(size); doc.setFont('helvetica', bold ? 'bold' : 'normal')
+        doc.setTextColor(...color); doc.text(String(text||''), x, y, {align})
       }
 
-      const fmt = (n) => '$' + (n||0).toLocaleString('es-MX', {minimumFractionDigits:0, maximumFractionDigits:0})
+      const resumenFiltrado = coachExport === 'todos'
+        ? resumen
+        : resumen.filter(r => r.coach.id === coachExport)
 
-      // Header
-      doc.setFillColor(15, 17, 23)
-      doc.rect(0, 0, W, 32, 'F')
-      addText('PADEL CAMP', margin, 13, 18, true, [0,229,160])
-      addText('Reporte de Comisiones', margin, 21, 11, false, [180,190,210])
-      addText(`Periodo: ${labelPeriodo}`, margin, 28, 9, false, [130,140,165])
-      addText(`Generado: ${new Date().toLocaleDateString('es-MX', {day:'numeric',month:'long',year:'numeric'})}`, W-margin, 28, 9, false, [130,140,165])
-      doc.setFontSize(9); doc.setTextColor(130,140,165)
-      doc.text(`Generado: ${new Date().toLocaleDateString('es-MX', {day:'numeric',month:'long',year:'numeric'})}`, W-margin, 28, {align:'right'})
+      resumenFiltrado.forEach((r, idx) => {
+        if (idx > 0) doc.addPage()
+        let y = M
 
-      y = 44
+        // Header page
+        doc.setFillColor(15, 17, 26)
+        doc.rect(0, 0, W, 30, 'F')
+        doc.setFillColor(0, 229, 160)
+        doc.rect(0, 0, 4, 30, 'F')
+        txt('PADEL CAMP', M+4, 11, 16, true, [0,229,160])
+        txt('Reporte de Comisiones', M+4, 19, 10, false, [160,175,200])
+        txt(`Periodo: ${labelPeriodo}`, M+4, 26, 8, false, [100,120,150])
+        txt(new Date().toLocaleDateString('es-MX', {day:'numeric',month:'long',year:'numeric'}), W-M, 26, 8, false, [100,120,150], 'right')
+        y = 38
 
-      // Summary stats
-      doc.setFillColor(24, 28, 40)
-      doc.roundedRect(margin, y, W-margin*2, 22, 3, 3, 'F')
-      const stats = [
-        { label: 'Ingreso Teórico', value: fmt(totalIngreso) },
-        { label: 'Total Comisiones', value: fmt(totalComisiones) },
-        { label: '% del Ingreso', value: totalIngreso > 0 ? ((totalComisiones/totalIngreso)*100).toFixed(1)+'%' : '—' },
-        { label: 'Valor Promos', value: fmt(totalPromos) },
-      ]
-      const colW = (W-margin*2) / 4
-      stats.forEach((s, i) => {
-        const x = margin + i*colW + colW/2
-        addText(s.value, x, y+10, 11, true, [0,229,160])
-        doc.setFontSize(8); doc.setFont('helvetica','normal'); doc.setTextColor(130,140,165)
-        doc.text(s.label, x, y+17, {align:'center'})
-      })
+        // Coach header card
+        doc.setFillColor(24, 30, 46)
+        doc.roundedRect(M, y, W-M*2, 28, 3, 3, 'F')
+        doc.setFillColor(0, 229, 160)
+        doc.roundedRect(M, y, 4, 28, 2, 2, 'F')
+        txt(r.coach.nombre, M+8, y+9, 16, true, [230,240,255])
+        txt(r.coach.esquema_comision, M+8, y+16, 9, false, [0,200,140])
 
-      y += 32
-
-      // Per coach sections
-      resumen.forEach(r => {
-        if (y > 250) { doc.addPage(); y = margin }
-
-        // Coach header
-        doc.setFillColor(30, 37, 53)
-        doc.roundedRect(margin, y, W-margin*2, 14, 2, 2, 'F')
-        doc.setDrawColor(0,229,160); doc.setLineWidth(0.8)
-        doc.line(margin, y, margin, y+14)
-        addText(r.coach.nombre, margin+5, y+6, 12, true, [240,245,255])
-        addText(r.coach.esquema_comision, margin+5, y+11, 8, false, [0,229,160])
-        addText(`Comisión: ${fmt(r.comision)}`, W-margin, y+6, 12, true, [0,229,160])
-        doc.setFontSize(8); doc.setTextColor(130,140,165)
-        doc.text(`Comisión: ${fmt(r.comision)}`, W-margin, y+6, {align:'right'})
-        y += 18
-
-        // Coach details row
-        const details = [
-          `Sueldo base: ${fmt(r.coach.sueldo_base)}`,
-          `Clases: ${r.clasesUnicas}`,
-          `Ingreso teórico: ${fmt(r.ingresoTeorico)}`,
-          `Cobrado: ${fmt(r.cobrado)}`,
-        ]
-        details.forEach((d, i) => {
-          addText(d, margin + i * (W-margin*2)/4, y, 8, false, [100,110,130])
-        })
-        y += 6
-
-        // Rule
+        // Regla
         let regla = ''
-        if (r.coach.esquema_comision === 'Porcentaje') regla = `Base ${fmt(r.coach.sueldo_base)} + ${(r.coach.porcentaje_comision*100).toFixed(0)}% sobre ${r.coach.aplica_iva ? 'neto (sin IVA)' : 'bruto'}`
-        if (r.coach.esquema_comision === 'Bono') regla = `Base ${fmt(r.coach.sueldo_base)} (min ${r.coach.horas_base_bono}hrs) + ${fmt(r.coach.pago_extra_clase)} por clase >${r.coach.clases_base}`
-        if (r.coach.esquema_comision === 'Mixto') regla = `Base ${fmt(r.coach.sueldo_base)} + ${fmt(r.coach.tarifa_privada_fija)}/privada + ${(r.coach.porcentaje_comision*100).toFixed(0)}% compartida`
-        addText(`Regla: ${regla}`, margin, y, 7.5, false, [80,90,110])
-        y += 8
+        if (r.coach.esquema_comision === 'Porcentaje') regla = `Sueldo base ${fmt2(r.coach.sueldo_base)} + ${(r.coach.porcentaje_comision*100).toFixed(0)}% sobre ${r.coach.aplica_iva ? 'neto (ingreso ÷ 1.16)' : 'bruto'}`
+        if (r.coach.esquema_comision === 'Bono') regla = `Base ${fmt2(r.coach.sueldo_base)} (mín. ${r.coach.horas_base_bono}hrs) + ${fmt2(r.coach.pago_extra_clase)}/clase extra después de clase ${r.coach.clases_base}`
+        if (r.coach.esquema_comision === 'Mixto') regla = `Base ${fmt2(r.coach.sueldo_base)} + ${fmt2(r.coach.tarifa_privada_fija)} por privada + ${(r.coach.porcentaje_comision*100).toFixed(0)}% compartida`
+        txt(regla, M+8, y+23, 7.5, false, [110,130,160])
 
-        // Classes table header
-        doc.setFillColor(20, 25, 38)
-        doc.rect(margin, y, W-margin*2, 6, 'F')
-        const cols = ['Jugador', 'Día / Horario', 'Modalidad', 'Mes', 'Monto', 'Estado']
-        const colWidths = [42, 32, 24, 18, 24, 22]
-        let x = margin + 2
-        cols.forEach((col, i) => {
-          addText(col, x, y+4, 7.5, true, [150,160,180])
-          x += colWidths[i]
+        // Comisión destacada
+        txt(fmt2(r.comision), W-M-2, y+13, 18, true, [0,229,160], 'right')
+        txt('COMISIÓN DEL PERIODO', W-M-2, y+20, 7, false, [100,130,160], 'right')
+        y += 34
+
+        // Stats row
+        const statCols = [
+          { label: 'Clases impartidas', val: String(r.clasesUnicas) },
+          { label: 'Ingreso teórico', val: fmt2(r.ingresoTeorico) },
+          { label: 'Monto cobrado', val: fmt2(r.cobrado) },
+          { label: 'Sueldo base', val: fmt2(r.coach.sueldo_base) },
+        ]
+        const cw = (W-M*2) / 4
+        statCols.forEach((s, i) => {
+          const x = M + i*cw
+          doc.setFillColor(20, 25, 40)
+          doc.rect(x, y, cw-2, 14, 'F')
+          txt(s.val, x + cw/2 - 1, y+7, 11, true, [200,215,240], 'center')
+          txt(s.label, x + cw/2 - 1, y+12, 7, false, [90,110,140], 'center')
         })
-        y += 8
+        y += 20
 
-        // Class rows
+        // Table title
+        txt('DETALLE DE CLASES DEL PERIODO', M, y, 8, true, [80,100,130])
+        y += 5
+
+        // Table header
+        const cols = [
+          { label: 'Jugador', w: 44 },
+          { label: 'Día', w: 22 },
+          { label: 'Horario', w: 18 },
+          { label: 'Tipo', w: 20 },
+          { label: 'Modalidad', w: 22 },
+          { label: 'Mes', w: 16 },
+          { label: 'Monto', w: 22 },
+          { label: 'Estado', w: 14 },
+        ]
+        doc.setFillColor(20, 26, 42)
+        doc.rect(M, y, W-M*2, 6, 'F')
+        let cx = M + 2
+        cols.forEach(c => {
+          txt(c.label, cx, y+4, 7, true, [130,150,180])
+          cx += c.w
+        })
+        y += 7
+
+        // Table rows
         const insCoach = filtrarIns(inscripciones).filter(i => i.clases?.coach_id === r.coach.id)
-        insCoach.forEach((ins, idx) => {
-          if (y > 268) { doc.addPage(); y = margin }
-          const bgColor = idx % 2 === 0 ? [18, 22, 34] : [22, 27, 40]
-          doc.setFillColor(...bgColor)
-          doc.rect(margin, y, W-margin*2, 5.5, 'F')
-          x = margin + 2
+        insCoach.forEach((ins, i) => {
+          if (y > 270) { doc.addPage(); y = M }
+          const bg = i % 2 === 0 ? [17, 21, 34] : [21, 27, 42]
+          doc.setFillColor(...bg)
+          doc.rect(M, y, W-M*2, 5.5, 'F')
+          cx = M + 2
           const row = [
-            ins.jugadores?.nombre || '—',
-            `${ins.clases?.dia || ''} ${ins.clases?.hora?.slice(0,5) || ''}`.trim() || '—',
-            ins.clases?.modalidad || '—',
-            ins.mes || '—',
-            fmt(ins.monto_cobrado),
-            ins.pagado ? 'Pagado' : 'Pendiente',
+            { val: ins.jugadores?.nombre || '—', color: [200,215,240] },
+            { val: ins.clases?.dia || '—', color: [160,175,200] },
+            { val: ins.clases?.hora?.slice(0,5) || '—', color: [160,175,200] },
+            { val: ins.clases?.tipo || '—', color: [140,160,190] },
+            { val: ins.clases?.modalidad || '—', color: ins.clases?.modalidad === 'Promo' ? [200,160,60] : [140,160,190] },
+            { val: ins.mes || '—', color: [140,160,190] },
+            { val: fmt2(ins.monto_cobrado), color: [200,215,240] },
+            { val: ins.pagado ? 'Pagado' : 'Pendiente', color: ins.pagado ? [0,200,130] : [220,90,90] },
           ]
-          row.forEach((val, i) => {
-            const color = i === 5 ? (ins.pagado ? [0,200,120] : [255,100,100]) : i === 4 ? [200,210,230] : [160,170,195]
-            addText(String(val).substring(0,22), x, y+4, 7.5, false, color)
-            x += colWidths[i]
+          row.forEach((cell, j) => {
+            txt(String(cell.val).substring(0,18), cx, y+4, 7.5, false, cell.color)
+            cx += cols[j].w
           })
           y += 5.5
         })
-        y += 8
 
-        // Separator
-        doc.setDrawColor(40, 50, 70); doc.setLineWidth(0.3)
-        doc.line(margin, y-3, W-margin, y-3)
+        if (insCoach.length === 0) {
+          txt('Sin clases en este periodo', M+2, y+4, 8, false, [80,100,130])
+          y += 8
+        }
+
+        y += 4
+        // Summary line
+        doc.setDrawColor(0, 229, 160); doc.setLineWidth(0.3)
+        doc.line(M, y, W-M, y)
+        y += 5
+        txt(`Total clases: ${r.clasesUnicas}`, M, y, 8, false, [120,140,170])
+        txt(`Ingreso teórico: ${fmt2(r.ingresoTeorico)}`, M+50, y, 8, false, [120,140,170])
+        txt(`Cobrado: ${fmt2(r.cobrado)}`, M+110, y, 8, false, [120,140,170])
+        txt(`COMISIÓN: ${fmt2(r.comision)}`, W-M, y, 9, true, [0,229,160], 'right')
       })
 
-      // Footer
+      // Page numbers
       const pages = doc.getNumberOfPages()
       for (let i = 1; i <= pages; i++) {
         doc.setPage(i)
-        doc.setFontSize(8); doc.setTextColor(80,90,110)
-        doc.text(`Padel Camp — Reporte de Comisiones — ${labelPeriodo}`, margin, 293)
-        doc.text(`Pág. ${i} / ${pages}`, W-margin, 293, {align:'right'})
+        doc.setFontSize(7); doc.setTextColor(80,100,130)
+        doc.text(`Padel Camp · Reporte de Comisiones · ${labelPeriodo}`, M, 293)
+        doc.text(`${i} / ${pages}`, W-M, 293, {align:'right'})
       }
 
-      const nombre = `comisiones_${labelPeriodo.replace(/[^a-zA-Z0-9]/g,'_')}_${new Date().toISOString().split('T')[0]}.pdf`
-      doc.save(nombre)
+      const coachNombre = coachExport === 'todos' ? 'todos' : coaches.find(c => c.id === coachExport)?.nombre?.replace(/\s/g,'_') || 'coach'
+      doc.save(`comisiones_${coachNombre}_${labelPeriodo.replace(/[^a-zA-Z0-9]/g,'_')}.pdf`)
+      setExportando(false)
+      setModalExport(false)
     }
-    document.head.appendChild(script)
+
+    cargarJsPDF()
   }
 
   return (
@@ -273,10 +291,11 @@ export default function Comisiones() {
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700 }}>Comisiones</h1>
           <p style={{ color: 'var(--text2)', fontSize: 14, marginTop: 4 }}>Calculadas sobre ingreso teórico · Promo no castiga al coach</p>
-          <button className="btn btn-secondary btn-sm" onClick={generarReporte} style={{ marginTop: 6 }}>📄 Exportar PDF</button>
+          <button className="btn btn-secondary btn-sm" onClick={() => setModalExport(true)} style={{ marginTop: 8 }}>
+            📄 Exportar PDF
+          </button>
         </div>
 
-        {/* Selector modo filtro */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'flex-end' }}>
           <div style={{ display: 'flex', gap: 6 }}>
             <button onClick={() => setModoFiltro('mes')} style={{
@@ -299,53 +318,33 @@ export default function Comisiones() {
 
           {modoFiltro === 'rango' && (
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-              <input className="form-input" type="date" value={desde} onChange={e => setDesde(e.target.value)} style={{ maxWidth: 150 }} placeholder="Desde" />
+              <input className="form-input" type="date" value={desde} onChange={e => setDesde(e.target.value)} style={{ maxWidth: 150 }} />
               <span style={{ color: 'var(--text2)', fontSize: 13 }}>→</span>
-              <input className="form-input" type="date" value={hasta} onChange={e => setHasta(e.target.value)} style={{ maxWidth: 150 }} placeholder="Hasta" />
+              <input className="form-input" type="date" value={hasta} onChange={e => setHasta(e.target.value)} style={{ maxWidth: 150 }} />
               {(desde || hasta) && <button className="btn btn-secondary btn-sm" onClick={() => { setDesde(''); setHasta('') }}>✕</button>}
             </div>
           )}
         </div>
       </div>
 
-      {/* Periodo activo */}
       <div style={{ background: 'rgba(0,229,160,.08)', border: '1px solid rgba(0,229,160,.2)', borderRadius: 8, padding: '8px 14px', fontSize: 13, color: 'var(--accent)', marginBottom: 20, textTransform: 'capitalize' }}>
         📅 Periodo: {labelPeriodo}
       </div>
 
-      {/* Stats */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: 24 }}>
-        <div className="stat-card">
-          <div className="stat-value" style={{ fontSize: 20 }}>{fmt(totalIngreso)}</div>
-          <div className="stat-label">Ingreso teórico</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-value" style={{ fontSize: 20, color: 'var(--accent)' }}>{fmt(totalComisiones)}</div>
-          <div className="stat-label">Total comisiones</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-value" style={{ fontSize: 20, color: 'var(--accent2)' }}>
-            {totalIngreso > 0 ? ((totalComisiones / totalIngreso) * 100).toFixed(1) + '%' : '—'}
-          </div>
-          <div className="stat-label">% en comisiones</div>
-        </div>
-        <div className="stat-card" style={{ borderColor: 'rgba(255,165,2,.3)' }}>
-          <div className="stat-value" style={{ fontSize: 20, color: 'var(--warn)' }}>{fmt(totalPromos)}</div>
-          <div className="stat-label">Valor clases Promo</div>
-        </div>
+        <div className="stat-card"><div className="stat-value" style={{ fontSize: 20 }}>{fmt(totalIngreso)}</div><div className="stat-label">Ingreso teórico</div></div>
+        <div className="stat-card"><div className="stat-value" style={{ fontSize: 20, color: 'var(--accent)' }}>{fmt(totalComisiones)}</div><div className="stat-label">Total comisiones</div></div>
+        <div className="stat-card"><div className="stat-value" style={{ fontSize: 20, color: 'var(--accent2)' }}>{totalIngreso > 0 ? ((totalComisiones/totalIngreso)*100).toFixed(1)+'%' : '—'}</div><div className="stat-label">% en comisiones</div></div>
+        <div className="stat-card" style={{ borderColor: 'rgba(255,165,2,.3)' }}><div className="stat-value" style={{ fontSize: 20, color: 'var(--warn)' }}>{fmt(totalPromos)}</div><div className="stat-label">Valor clases Promo</div></div>
       </div>
 
-      {/* Tabs */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 16 }}>
-        {[
-          { id: 'comisiones', label: '💰 Comisiones por coach' },
-          { id: 'promos', label: `🎁 Promo / Cortesía (${promos.length})` },
-        ].map(t => (
+        {[{ id: 'comisiones', label: '💰 Comisiones por coach' }, { id: 'promos', label: `🎁 Promo / Cortesía (${promos.length})` }].map(t => (
           <button key={t.id} onClick={() => setTabActiva(t.id)} style={{
             padding: '8px 16px', borderRadius: 8, border: 'none', cursor: 'pointer',
             background: tabActiva === t.id ? 'var(--accent)' : 'var(--bg3)',
-            color: tabActiva === t.id ? '#000' : 'var(--text2)',
-            fontSize: 13, fontWeight: tabActiva === t.id ? 600 : 400,
+            color: tabActiva === t.id ? '#000' : 'var(--text2)', fontSize: 13,
+            fontWeight: tabActiva === t.id ? 600 : 400,
           }}>{t.label}</button>
         ))}
       </div>
@@ -353,9 +352,7 @@ export default function Comisiones() {
       {tabActiva === 'comisiones' && (
         <div className="card" style={{ padding: 0 }}>
           <table className="table">
-            <thead><tr>
-              <th>Coach</th><th>Esquema</th><th>Clases</th><th>Ingreso teórico</th><th>Comisión</th><th>Regla</th>
-            </tr></thead>
+            <thead><tr><th>Coach</th><th>Esquema</th><th>Clases</th><th>Ingreso teórico</th><th>Comisión</th><th>Regla</th></tr></thead>
             <tbody>
               {resumen.map(r => (
                 <tr key={r.coach.id}>
@@ -366,16 +363,12 @@ export default function Comisiones() {
                   <td style={{ fontFamily: 'var(--mono)', fontSize: 14, fontWeight: 700, color: 'var(--accent)' }}>{fmt(r.comision)}</td>
                   <td style={{ fontSize: 12, color: 'var(--text2)' }}>
                     {r.coach.esquema_comision === 'Bono' && `Base ${fmt(r.coach.sueldo_base)} + ${fmt(r.coach.pago_extra_clase)}/clase>${r.coach.clases_base}`}
-                    {r.coach.esquema_comision === 'Porcentaje' && `Base ${fmt(r.coach.sueldo_base)} + ${(r.coach.porcentaje_comision * 100).toFixed(0)}% ${r.coach.aplica_iva ? 'neto' : 'bruto'}`}
-                    {r.coach.esquema_comision === 'Mixto' && `Base ${fmt(r.coach.sueldo_base)} + ${fmt(r.coach.tarifa_privada_fija)}/priv + ${(r.coach.porcentaje_comision * 100).toFixed(0)}%`}
+                    {r.coach.esquema_comision === 'Porcentaje' && `Base ${fmt(r.coach.sueldo_base)} + ${(r.coach.porcentaje_comision*100).toFixed(0)}% ${r.coach.aplica_iva ? 'neto' : 'bruto'}`}
+                    {r.coach.esquema_comision === 'Mixto' && `Base ${fmt(r.coach.sueldo_base)} + ${fmt(r.coach.tarifa_privada_fija)}/priv + ${(r.coach.porcentaje_comision*100).toFixed(0)}%`}
                   </td>
                 </tr>
               ))}
-              {resumen.length === 0 && (
-                <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--text2)', padding: 32 }}>
-                  Sin datos para {labelPeriodo}
-                </td></tr>
-              )}
+              {resumen.length === 0 && <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--text2)', padding: 32 }}>Sin datos para {labelPeriodo}</td></tr>}
             </tbody>
           </table>
         </div>
@@ -384,36 +377,73 @@ export default function Comisiones() {
       {tabActiva === 'promos' && (
         <div className="card" style={{ padding: 0 }}>
           {promos.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: 40, color: 'var(--text2)' }}>
-              No hay clases Promo o Cortesía en este periodo
+            <div style={{ textAlign: 'center', padding: 40, color: 'var(--text2)' }}>No hay clases Promo o Cortesía en este periodo</div>
+          ) : (<>
+            <table className="table">
+              <thead><tr><th>Jugador</th><th>Tipo</th><th>Coach</th><th>Valor teórico</th></tr></thead>
+              <tbody>
+                {promos.map((p, i) => (
+                  <tr key={i}>
+                    <td style={{ fontWeight: 500 }}>{p.jugador}</td>
+                    <td><span className="badge badge-gray">{p.modalidad}</span></td>
+                    <td style={{ fontSize: 13 }}>{p.coach}</td>
+                    <td style={{ fontFamily: 'var(--mono)', fontSize: 13, color: 'var(--warn)' }}>{fmt(p.valorTeorico)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+              <span style={{ color: 'var(--text2)' }}>{promos.length} clases sin cobro</span>
+              <span style={{ fontFamily: 'var(--mono)', fontWeight: 700, color: 'var(--warn)' }}>Total: {fmt(totalPromos)}</span>
             </div>
-          ) : (
-            <>
-              <table className="table">
-                <thead><tr><th>Jugador</th><th>Tipo</th><th>Coach</th><th>Valor teórico</th></tr></thead>
-                <tbody>
-                  {promos.map((p, i) => (
-                    <tr key={i}>
-                      <td style={{ fontWeight: 500 }}>{p.jugador}</td>
-                      <td><span className="badge badge-gray">{p.modalidad}</span></td>
-                      <td style={{ fontSize: 13 }}>{p.coach}</td>
-                      <td style={{ fontFamily: 'var(--mono)', fontSize: 13, color: 'var(--warn)' }}>{fmt(p.valorTeorico)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
-                <span style={{ color: 'var(--text2)' }}>{promos.length} clases sin cobro</span>
-                <span style={{ fontFamily: 'var(--mono)', fontWeight: 700, color: 'var(--warn)' }}>Total: {fmt(totalPromos)}</span>
-              </div>
-            </>
-          )}
+          </>)}
         </div>
       )}
 
       <div style={{ marginTop: 16, padding: '12px 16px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 13, color: 'var(--text2)' }}>
         💡 Ingreso teórico de Promo/Cortesía se calcula según precio por participantes. El coach siempre recibe su comisión completa.
       </div>
+
+      {/* Modal exportar */}
+      {modalExport && (
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setModalExport(false)}>
+          <div className="modal" style={{ maxWidth: 420 }}>
+            <h2 className="modal-title">Exportar reporte PDF</h2>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+              <div style={{ background: 'var(--bg3)', borderRadius: 8, padding: '10px 14px', fontSize: 13, color: 'var(--text2)' }}>
+                📅 Periodo: <strong style={{ color: 'var(--text)', textTransform: 'capitalize' }}>{labelPeriodo}</strong>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">¿Para qué coach?</label>
+                <select className="form-input" value={coachExport} onChange={e => setCoachExport(e.target.value)}>
+                  <option value="todos">Todos los coaches (una página por coach)</option>
+                  {resumen.map(r => (
+                    <option key={r.coach.id} value={r.coach.id}>{r.coach.nombre}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={{ background: 'rgba(0,229,160,.06)', border: '1px solid rgba(0,229,160,.15)', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: 'var(--text2)', lineHeight: 1.6 }}>
+                El reporte incluirá por cada coach:<br />
+                • Periodo y fecha de generación<br />
+                • Sueldo base, esquema y regla de cálculo<br />
+                • Tabla detallada de clases (jugador, día, horario, tipo, monto, estado)<br />
+                • Comisión total del periodo<br />
+                • Cada coach inicia en página nueva
+              </div>
+
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                <button className="btn btn-secondary" onClick={() => setModalExport(false)}>Cancelar</button>
+                <button className="btn btn-primary" onClick={generarPDF} disabled={exportando}>
+                  {exportando ? 'Generando...' : '⬇️ Descargar PDF'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
