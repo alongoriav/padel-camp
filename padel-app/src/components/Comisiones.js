@@ -10,12 +10,10 @@ const PRECIOS_TEORICOS = {
   4: { Semanal: 375, 'Clase única': 450 },
 }
 
-function calcValorTeorico(modalidad, participantes, clases) {
+function calcValorTeorico(modalidad, participantes) {
   const p = Math.min(participantes || 1, 4)
-  if (modalidad === 'Semanal') {
-    const base4 = (PRECIOS_TEORICOS[p]?.Semanal || 0) * 4
-    return Math.round(base4 * (clases || 1) / 4)
-  }
+  if (modalidad === 'Semanal' || modalidad === 'Promo' || modalidad === 'Cortesía')
+    return PRECIOS_TEORICOS[p]?.Semanal || 0
   return PRECIOS_TEORICOS[p]?.['Clase única'] || 0
 }
 
@@ -35,8 +33,7 @@ function calcComision(coach, clases, ingresoTeorico) {
     const base = coach.sueldo_base || 0
     const privadas = clases * (coach.tarifa_privada_fija || 0)
     const neto = coach.aplica_iva ? ingresoTeorico / 1.16 : ingresoTeorico
-    const compartidas = neto * (coach.porcentaje_comision || 0)
-    return base + privadas + compartidas
+    return base + privadas + neto * (coach.porcentaje_comision || 0)
   }
   return 0
 }
@@ -45,18 +42,21 @@ export default function Comisiones() {
   const [coaches, setCoaches] = useState([])
   const [inscripciones, setInscripciones] = useState([])
   const [clases, setClases] = useState([])
+  const [modoFiltro, setModoFiltro] = useState('mes')
   const [mesSeleccionado, setMesSeleccionado] = useState(MESES[new Date().getMonth()])
+  const [desde, setDesde] = useState('')
+  const [hasta, setHasta] = useState('')
   const [resumen, setResumen] = useState([])
   const [promos, setPromos] = useState([])
   const [tabActiva, setTabActiva] = useState('comisiones')
 
   useEffect(() => { fetchData() }, [])
-  useEffect(() => { calcResumen() }, [mesSeleccionado, coaches, inscripciones, clases])
+  useEffect(() => { calcResumen() }, [mesSeleccionado, desde, hasta, modoFiltro, coaches, inscripciones, clases])
 
   const fetchData = async () => {
     const [{ data: cs }, { data: ins }, { data: cl }] = await Promise.all([
       supabase.from('coaches').select('*').order('nombre'),
-      supabase.from('inscripciones').select('*, jugadores(nombre), clases(coach_id, tipo, modalidad)'),
+      supabase.from('inscripciones').select('*, jugadores(nombre), clases(coach_id, tipo, modalidad, fecha_inicio)'),
       supabase.from('clases').select('*'),
     ])
     setCoaches(cs || [])
@@ -64,22 +64,31 @@ export default function Comisiones() {
     setClases(cl || [])
   }
 
+  const filtrarIns = (ins) => {
+    if (modoFiltro === 'mes') return ins.filter(i => i.mes === mesSeleccionado)
+    if (modoFiltro === 'rango') {
+      return ins.filter(i => {
+        const fecha = i.clases?.fecha_inicio
+        if (!fecha) return false
+        if (desde && fecha < desde) return false
+        if (hasta && fecha > hasta) return false
+        return true
+      })
+    }
+    return ins
+  }
+
   const calcResumen = () => {
-    // Calcular comisiones
     const res = coaches.map(coach => {
-      const insMes = inscripciones.filter(i => i.mes === mesSeleccionado && i.clases?.coach_id === coach.id)
+      const insMes = filtrarIns(inscripciones).filter(i => i.clases?.coach_id === coach.id)
       const clasesUnicas = new Set(insMes.map(i => i.clase_id)).size
 
-      // Para cada inscripción, usar valor teórico si es Promo/Cortesía
       let ingresoTeorico = 0
       insMes.forEach(i => {
         const modalidad = i.clases?.modalidad
         if (modalidad === 'Promo' || modalidad === 'Cortesía') {
-          // Calcular valor teórico según participantes del grupo
           const participantesGrupo = insMes.filter(x => x.clase_id === i.clase_id).length
-          const clasesEnRango = clases.find(c => c.id === i.clase_id)
-          const numClases = 1 // aproximación por inscripción
-          ingresoTeorico += calcValorTeorico(i.clases?.modalidad === 'Promo' ? 'Semanal' : 'Clase única', participantesGrupo, numClases)
+          ingresoTeorico += calcValorTeorico(modalidad, participantesGrupo)
         } else {
           ingresoTeorico += i.monto_cobrado || 0
         }
@@ -92,20 +101,16 @@ export default function Comisiones() {
 
     setResumen(res)
 
-    // Calcular promos del mes
-    const promosMes = inscripciones.filter(i => {
-      const modalidad = i.clases?.modalidad
-      return i.mes === mesSeleccionado && (modalidad === 'Promo' || modalidad === 'Cortesía')
+    const promosMes = filtrarIns(inscripciones).filter(i => {
+      const m = i.clases?.modalidad
+      return m === 'Promo' || m === 'Cortesía'
     }).map(i => {
-      const participantesGrupo = inscripciones.filter(x => x.clase_id === i.clase_id).length
-      const valorTeorico = calcValorTeorico('Semanal', participantesGrupo, 1)
-      const coachNombre = coaches.find(c => c.id === i.clases?.coach_id)?.nombre || '—'
+      const participantesGrupo = filtrarIns(inscripciones).filter(x => x.clase_id === i.clase_id).length
       return {
         jugador: i.jugadores?.nombre,
         modalidad: i.clases?.modalidad,
-        coach: coachNombre,
-        valorTeorico,
-        mes: i.mes,
+        coach: coaches.find(c => c.id === i.clases?.coach_id)?.nombre || '—',
+        valorTeorico: calcValorTeorico(i.clases?.modalidad, participantesGrupo),
       }
     })
     setPromos(promosMes)
@@ -116,16 +121,53 @@ export default function Comisiones() {
   const totalIngreso = resumen.reduce((a, r) => a + r.ingresoTeorico, 0)
   const totalPromos = promos.reduce((a, p) => a + p.valorTeorico, 0)
 
+  const labelPeriodo = modoFiltro === 'mes'
+    ? mesSeleccionado
+    : desde && hasta ? `${desde} → ${hasta}` : desde ? `Desde ${desde}` : hasta ? `Hasta ${hasta}` : 'Todo'
+
   return (
-    <div style={{ maxWidth: 900 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
+    <div style={{ maxWidth: 960 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700 }}>Comisiones</h1>
-          <p style={{ color: 'var(--text2)', fontSize: 14, marginTop: 4 }}>Calculadas sobre ingreso teórico · Promo/Cortesía no castiga al coach</p>
+          <p style={{ color: 'var(--text2)', fontSize: 14, marginTop: 4 }}>Calculadas sobre ingreso teórico · Promo no castiga al coach</p>
         </div>
-        <select className="form-input" style={{ maxWidth: 180, textTransform: 'capitalize' }} value={mesSeleccionado} onChange={e => setMesSeleccionado(e.target.value)}>
-          {MESES.map(m => <option key={m} value={m} style={{ textTransform: 'capitalize' }}>{m}</option>)}
-        </select>
+
+        {/* Selector modo filtro */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'flex-end' }}>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button onClick={() => setModoFiltro('mes')} style={{
+              padding: '7px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 13,
+              background: modoFiltro === 'mes' ? 'var(--accent)' : 'var(--bg3)',
+              color: modoFiltro === 'mes' ? '#000' : 'var(--text2)', fontWeight: modoFiltro === 'mes' ? 600 : 400,
+            }}>Por mes</button>
+            <button onClick={() => setModoFiltro('rango')} style={{
+              padding: '7px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 13,
+              background: modoFiltro === 'rango' ? 'var(--accent)' : 'var(--bg3)',
+              color: modoFiltro === 'rango' ? '#000' : 'var(--text2)', fontWeight: modoFiltro === 'rango' ? 600 : 400,
+            }}>Rango de fechas</button>
+          </div>
+
+          {modoFiltro === 'mes' && (
+            <select className="form-input" style={{ maxWidth: 180, textTransform: 'capitalize' }} value={mesSeleccionado} onChange={e => setMesSeleccionado(e.target.value)}>
+              {MESES.map(m => <option key={m} value={m} style={{ textTransform: 'capitalize' }}>{m}</option>)}
+            </select>
+          )}
+
+          {modoFiltro === 'rango' && (
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+              <input className="form-input" type="date" value={desde} onChange={e => setDesde(e.target.value)} style={{ maxWidth: 150 }} placeholder="Desde" />
+              <span style={{ color: 'var(--text2)', fontSize: 13 }}>→</span>
+              <input className="form-input" type="date" value={hasta} onChange={e => setHasta(e.target.value)} style={{ maxWidth: 150 }} placeholder="Hasta" />
+              {(desde || hasta) && <button className="btn btn-secondary btn-sm" onClick={() => { setDesde(''); setHasta('') }}>✕</button>}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Periodo activo */}
+      <div style={{ background: 'rgba(0,229,160,.08)', border: '1px solid rgba(0,229,160,.2)', borderRadius: 8, padding: '8px 14px', fontSize: 13, color: 'var(--accent)', marginBottom: 20, textTransform: 'capitalize' }}>
+        📅 Periodo: {labelPeriodo}
       </div>
 
       {/* Stats */}
@@ -165,7 +207,6 @@ export default function Comisiones() {
         ))}
       </div>
 
-      {/* Comisiones tab */}
       {tabActiva === 'comisiones' && (
         <div className="card" style={{ padding: 0 }}>
           <table className="table">
@@ -181,15 +222,15 @@ export default function Comisiones() {
                   <td style={{ fontFamily: 'var(--mono)', fontSize: 13 }}>{fmt(r.ingresoTeorico)}</td>
                   <td style={{ fontFamily: 'var(--mono)', fontSize: 14, fontWeight: 700, color: 'var(--accent)' }}>{fmt(r.comision)}</td>
                   <td style={{ fontSize: 12, color: 'var(--text2)' }}>
-                    {r.coach.esquema_comision === 'Bono' && `Base ${fmt(r.coach.sueldo_base)} + ${fmt(r.coach.pago_extra_clase)}/clase extra (>${r.coach.clases_base})`}
+                    {r.coach.esquema_comision === 'Bono' && `Base ${fmt(r.coach.sueldo_base)} + ${fmt(r.coach.pago_extra_clase)}/clase>${r.coach.clases_base}`}
                     {r.coach.esquema_comision === 'Porcentaje' && `Base ${fmt(r.coach.sueldo_base)} + ${(r.coach.porcentaje_comision * 100).toFixed(0)}% ${r.coach.aplica_iva ? 'neto' : 'bruto'}`}
-                    {r.coach.esquema_comision === 'Mixto' && `Base ${fmt(r.coach.sueldo_base)} + ${fmt(r.coach.tarifa_privada_fija)}/priv + ${(r.coach.porcentaje_comision * 100).toFixed(0)}% comp`}
+                    {r.coach.esquema_comision === 'Mixto' && `Base ${fmt(r.coach.sueldo_base)} + ${fmt(r.coach.tarifa_privada_fija)}/priv + ${(r.coach.porcentaje_comision * 100).toFixed(0)}%`}
                   </td>
                 </tr>
               ))}
               {resumen.length === 0 && (
                 <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--text2)', padding: 32 }}>
-                  Sin datos para {mesSeleccionado}
+                  Sin datos para {labelPeriodo}
                 </td></tr>
               )}
             </tbody>
@@ -197,19 +238,16 @@ export default function Comisiones() {
         </div>
       )}
 
-      {/* Promos tab */}
       {tabActiva === 'promos' && (
         <div className="card" style={{ padding: 0 }}>
           {promos.length === 0 ? (
             <div style={{ textAlign: 'center', padding: 40, color: 'var(--text2)' }}>
-              No hay clases Promo o Cortesía en {mesSeleccionado}
+              No hay clases Promo o Cortesía en este periodo
             </div>
           ) : (
             <>
               <table className="table">
-                <thead><tr>
-                  <th>Jugador</th><th>Tipo</th><th>Coach</th><th>Valor teórico</th>
-                </tr></thead>
+                <thead><tr><th>Jugador</th><th>Tipo</th><th>Coach</th><th>Valor teórico</th></tr></thead>
                 <tbody>
                   {promos.map((p, i) => (
                     <tr key={i}>
@@ -222,7 +260,7 @@ export default function Comisiones() {
                 </tbody>
               </table>
               <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
-                <span style={{ color: 'var(--text2)' }}>{promos.length} clases sin cobro en {mesSeleccionado}</span>
+                <span style={{ color: 'var(--text2)' }}>{promos.length} clases sin cobro</span>
                 <span style={{ fontFamily: 'var(--mono)', fontWeight: 700, color: 'var(--warn)' }}>Total: {fmt(totalPromos)}</span>
               </div>
             </>
@@ -231,7 +269,7 @@ export default function Comisiones() {
       )}
 
       <div style={{ marginTop: 16, padding: '12px 16px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 13, color: 'var(--text2)' }}>
-        💡 El ingreso teórico de clases Promo/Cortesía se calcula según el precio que correspondería por número de participantes. El coach siempre recibe su comisión completa.
+        💡 Ingreso teórico de Promo/Cortesía se calcula según precio por participantes. El coach siempre recibe su comisión completa.
       </div>
     </div>
   )
