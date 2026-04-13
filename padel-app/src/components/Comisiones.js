@@ -125,12 +125,155 @@ export default function Comisiones() {
     ? mesSeleccionado
     : desde && hasta ? `${desde} → ${hasta}` : desde ? `Desde ${desde}` : hasta ? `Hasta ${hasta}` : 'Todo'
 
+  const generarReporte = () => {
+    const script = document.createElement('script')
+    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'
+    script.onload = () => {
+      const { jsPDF } = window.jspdf
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+      const W = 210, margin = 18
+      let y = margin
+
+      const addText = (text, x, yy, size=10, bold=false, color=[0,0,0]) => {
+        doc.setFontSize(size)
+        doc.setFont('helvetica', bold ? 'bold' : 'normal')
+        doc.setTextColor(...color)
+        doc.text(String(text), x, yy)
+      }
+
+      const fmt = (n) => '$' + (n||0).toLocaleString('es-MX', {minimumFractionDigits:0, maximumFractionDigits:0})
+
+      // Header
+      doc.setFillColor(15, 17, 23)
+      doc.rect(0, 0, W, 32, 'F')
+      addText('PADEL CAMP', margin, 13, 18, true, [0,229,160])
+      addText('Reporte de Comisiones', margin, 21, 11, false, [180,190,210])
+      addText(`Periodo: ${labelPeriodo}`, margin, 28, 9, false, [130,140,165])
+      addText(`Generado: ${new Date().toLocaleDateString('es-MX', {day:'numeric',month:'long',year:'numeric'})}`, W-margin, 28, 9, false, [130,140,165])
+      doc.setFontSize(9); doc.setTextColor(130,140,165)
+      doc.text(`Generado: ${new Date().toLocaleDateString('es-MX', {day:'numeric',month:'long',year:'numeric'})}`, W-margin, 28, {align:'right'})
+
+      y = 44
+
+      // Summary stats
+      doc.setFillColor(24, 28, 40)
+      doc.roundedRect(margin, y, W-margin*2, 22, 3, 3, 'F')
+      const stats = [
+        { label: 'Ingreso Teórico', value: fmt(totalIngreso) },
+        { label: 'Total Comisiones', value: fmt(totalComisiones) },
+        { label: '% del Ingreso', value: totalIngreso > 0 ? ((totalComisiones/totalIngreso)*100).toFixed(1)+'%' : '—' },
+        { label: 'Valor Promos', value: fmt(totalPromos) },
+      ]
+      const colW = (W-margin*2) / 4
+      stats.forEach((s, i) => {
+        const x = margin + i*colW + colW/2
+        addText(s.value, x, y+10, 11, true, [0,229,160])
+        doc.setFontSize(8); doc.setFont('helvetica','normal'); doc.setTextColor(130,140,165)
+        doc.text(s.label, x, y+17, {align:'center'})
+      })
+
+      y += 32
+
+      // Per coach sections
+      resumen.forEach(r => {
+        if (y > 250) { doc.addPage(); y = margin }
+
+        // Coach header
+        doc.setFillColor(30, 37, 53)
+        doc.roundedRect(margin, y, W-margin*2, 14, 2, 2, 'F')
+        doc.setDrawColor(0,229,160); doc.setLineWidth(0.8)
+        doc.line(margin, y, margin, y+14)
+        addText(r.coach.nombre, margin+5, y+6, 12, true, [240,245,255])
+        addText(r.coach.esquema_comision, margin+5, y+11, 8, false, [0,229,160])
+        addText(`Comisión: ${fmt(r.comision)}`, W-margin, y+6, 12, true, [0,229,160])
+        doc.setFontSize(8); doc.setTextColor(130,140,165)
+        doc.text(`Comisión: ${fmt(r.comision)}`, W-margin, y+6, {align:'right'})
+        y += 18
+
+        // Coach details row
+        const details = [
+          `Sueldo base: ${fmt(r.coach.sueldo_base)}`,
+          `Clases: ${r.clasesUnicas}`,
+          `Ingreso teórico: ${fmt(r.ingresoTeorico)}`,
+          `Cobrado: ${fmt(r.cobrado)}`,
+        ]
+        details.forEach((d, i) => {
+          addText(d, margin + i * (W-margin*2)/4, y, 8, false, [100,110,130])
+        })
+        y += 6
+
+        // Rule
+        let regla = ''
+        if (r.coach.esquema_comision === 'Porcentaje') regla = `Base ${fmt(r.coach.sueldo_base)} + ${(r.coach.porcentaje_comision*100).toFixed(0)}% sobre ${r.coach.aplica_iva ? 'neto (sin IVA)' : 'bruto'}`
+        if (r.coach.esquema_comision === 'Bono') regla = `Base ${fmt(r.coach.sueldo_base)} (min ${r.coach.horas_base_bono}hrs) + ${fmt(r.coach.pago_extra_clase)} por clase >${r.coach.clases_base}`
+        if (r.coach.esquema_comision === 'Mixto') regla = `Base ${fmt(r.coach.sueldo_base)} + ${fmt(r.coach.tarifa_privada_fija)}/privada + ${(r.coach.porcentaje_comision*100).toFixed(0)}% compartida`
+        addText(`Regla: ${regla}`, margin, y, 7.5, false, [80,90,110])
+        y += 8
+
+        // Classes table header
+        doc.setFillColor(20, 25, 38)
+        doc.rect(margin, y, W-margin*2, 6, 'F')
+        const cols = ['Jugador', 'Día / Horario', 'Modalidad', 'Mes', 'Monto', 'Estado']
+        const colWidths = [42, 32, 24, 18, 24, 22]
+        let x = margin + 2
+        cols.forEach((col, i) => {
+          addText(col, x, y+4, 7.5, true, [150,160,180])
+          x += colWidths[i]
+        })
+        y += 8
+
+        // Class rows
+        const insCoach = filtrarIns(inscripciones).filter(i => i.clases?.coach_id === r.coach.id)
+        insCoach.forEach((ins, idx) => {
+          if (y > 268) { doc.addPage(); y = margin }
+          const bgColor = idx % 2 === 0 ? [18, 22, 34] : [22, 27, 40]
+          doc.setFillColor(...bgColor)
+          doc.rect(margin, y, W-margin*2, 5.5, 'F')
+          x = margin + 2
+          const row = [
+            ins.jugadores?.nombre || '—',
+            `${ins.clases?.dia || ''} ${ins.clases?.hora?.slice(0,5) || ''}`.trim() || '—',
+            ins.clases?.modalidad || '—',
+            ins.mes || '—',
+            fmt(ins.monto_cobrado),
+            ins.pagado ? 'Pagado' : 'Pendiente',
+          ]
+          row.forEach((val, i) => {
+            const color = i === 5 ? (ins.pagado ? [0,200,120] : [255,100,100]) : i === 4 ? [200,210,230] : [160,170,195]
+            addText(String(val).substring(0,22), x, y+4, 7.5, false, color)
+            x += colWidths[i]
+          })
+          y += 5.5
+        })
+        y += 8
+
+        // Separator
+        doc.setDrawColor(40, 50, 70); doc.setLineWidth(0.3)
+        doc.line(margin, y-3, W-margin, y-3)
+      })
+
+      // Footer
+      const pages = doc.getNumberOfPages()
+      for (let i = 1; i <= pages; i++) {
+        doc.setPage(i)
+        doc.setFontSize(8); doc.setTextColor(80,90,110)
+        doc.text(`Padel Camp — Reporte de Comisiones — ${labelPeriodo}`, margin, 293)
+        doc.text(`Pág. ${i} / ${pages}`, W-margin, 293, {align:'right'})
+      }
+
+      const nombre = `comisiones_${labelPeriodo.replace(/[^a-zA-Z0-9]/g,'_')}_${new Date().toISOString().split('T')[0]}.pdf`
+      doc.save(nombre)
+    }
+    document.head.appendChild(script)
+  }
+
   return (
     <div style={{ maxWidth: 960 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700 }}>Comisiones</h1>
           <p style={{ color: 'var(--text2)', fontSize: 14, marginTop: 4 }}>Calculadas sobre ingreso teórico · Promo no castiga al coach</p>
+          <button className="btn btn-secondary btn-sm" onClick={generarReporte} style={{ marginTop: 6 }}>📄 Exportar PDF</button>
         </div>
 
         {/* Selector modo filtro */}
