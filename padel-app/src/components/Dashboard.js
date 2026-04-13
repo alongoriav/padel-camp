@@ -56,22 +56,13 @@ export default function Dashboard({ usuario }) {
   const generarCorte = async () => {
     setGenerando(true)
 
-    // Fetch all inscriptions for the day with full details
-    const { data: ins } = await supabase
-      .from('inscripciones')
-      .select('*, jugadores(nombre), clases(coach_id, dia, hora, tipo, modalidad, coaches(nombre))')
-      .eq('pagado', true)
-
-    // Filter by date - using created_at or clases.fecha_inicio matching fechaCorte
     const { data: insDetalle } = await supabase
       .from('inscripciones')
       .select('*, jugadores(nombre), clases(coach_id, dia, hora, tipo, modalidad, fecha_inicio, coaches(nombre))')
       .eq('pagado', true)
+      .eq('fecha_pago', fechaCorte)
 
-    const pagosDelDia = (insDetalle || []).filter(i => {
-      // Match by fecha_inicio of the class
-      return i.clases?.fecha_inicio === fechaCorte
-    })
+    const pagosDelDia = insDetalle || []
 
     const cargarJsPDF = () => {
       if (window.jspdf) { ejecutarCorte(pagosDelDia); return }
