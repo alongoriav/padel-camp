@@ -8,6 +8,7 @@ import Clases from './components/Clases'
 import Agenda from './components/Agenda'
 import Comisiones from './components/Comisiones'
 import Precios from './components/Precios'
+import EnVivo from './components/EnVivo'
 import Sidebar from './components/Sidebar'
 
 export default function App() {
@@ -42,7 +43,7 @@ export default function App() {
     </div>
   )
 
-  if (!session) return <Login />
+  if (!session) return <Login onLogin={() => {}} />
 
   const isAdmin = usuario?.rol === 'admin'
 
@@ -54,6 +55,7 @@ export default function App() {
     coaches: isAdmin ? <Coaches /> : null,
     comisiones: isAdmin ? <Comisiones /> : null,
     precios: isAdmin ? <Precios /> : null,
+    envivo: <EnVivo />,
   }
 
   return (
