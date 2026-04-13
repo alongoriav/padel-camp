@@ -137,7 +137,11 @@ export default function Clases({ usuario }) {
   }
 
   const togglePago = async (ins) => {
-    await supabase.from('inscripciones').update({ pagado: !ins.pagado }).eq('id', ins.id)
+    const ahora = new Date().toISOString().split('T')[0]
+    const update = ins.pagado 
+      ? { pagado: false, fecha_pago: null }
+      : { pagado: true, fecha_pago: ahora }
+    await supabase.from('inscripciones').update(update).eq('id', ins.id)
     fetchAll()
     if (detalle) {
       const { data } = await supabase.from('inscripciones').select('*, jugadores(nombre)').eq('clase_id', detalle.id)
