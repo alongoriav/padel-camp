@@ -119,3 +119,7 @@ input, select, textarea { font-family: var(--font); }
   animation: slideIn .2s ease;
 }
 @keyframes slideIn { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(60%) sepia(80%) saturate(500%) hue-rotate(10deg) brightness(110%);
+  cursor: pointer;
+}
