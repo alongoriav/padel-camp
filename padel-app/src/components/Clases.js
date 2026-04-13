@@ -324,7 +324,7 @@ export default function Clases({ usuario }) {
                   {busqueda && jugadoresFiltrados.length > 0 && (
                     <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10, background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 8, maxHeight: 180, overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,.4)' }}>
                       {jugadoresFiltrados.slice(0, 6).map(j => (
-                        <div key={j.id} onClick={() => { setJugadoresClase(prev => [...prev, { jugador_id: j.id, nombre: j.nombre, metodo: 'Efectivo', pagado: false }]); setBusqueda('') }}
+                        <div key={j.id} onMouseDown={e => { e.preventDefault(); setJugadoresClase(prev => [...prev, { jugador_id: j.id, nombre: j.nombre, metodo: 'Efectivo', pagado: false }]); setBusqueda('') }}
                           style={{ padding: '10px 14px', cursor: 'pointer', fontSize: 14, borderBottom: '1px solid var(--border)' }}
                           onMouseEnter={e => e.currentTarget.style.background = 'var(--border)'}
                           onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
@@ -414,7 +414,7 @@ export default function Clases({ usuario }) {
                 {busquedaDetalle && jugadoresDisponiblesDetalle.length > 0 && (
                   <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10, background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 8, maxHeight: 180, overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,.4)' }}>
                     {jugadoresDisponiblesDetalle.slice(0, 6).map(j => (
-                      <div key={j.id} onClick={() => agregarJugadorDetalle(j)}
+                      <div key={j.id} onMouseDown={e => { e.preventDefault(); agregarJugadorDetalle(j) }}
                         style={{ padding: '10px 14px', cursor: 'pointer', fontSize: 14, borderBottom: '1px solid var(--border)' }}
                         onMouseEnter={e => e.currentTarget.style.background = 'var(--border)'}
                         onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
