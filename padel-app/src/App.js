@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react'
-
 import { supabase } from './supabase'
 import Login from './components/Login'
 import Dashboard from './components/Dashboard'
@@ -43,7 +42,7 @@ export default function App() {
     </div>
   )
 
-  if (!session) return <Login onLogin={() => {}} />
+  if (!session) return <Login />
 
   const isAdmin = usuario?.rol === 'admin'
 
