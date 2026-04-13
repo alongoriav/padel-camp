@@ -182,15 +182,29 @@ export default function Comisiones() {
         const diasDelMes = modoFiltro === 'mes' ? diasMes(mesSeleccionado) : 30
         const baseProporcional = (r.coach.sueldo_base || 0) / diasDelMes * diasRango
 
+        // Recalcular ingreso teórico para este coach en el periodo
+        const insCoachPDF = filtrarIns(inscripciones).filter(i => i.clases?.coach_id === r.coach.id)
+        let ingresoTeoricoPDF = 0
+        insCoachPDF.forEach(i => {
+          const modalidad = i.clases?.modalidad
+          const p = insCoachPDF.filter(x => x.clase_id === i.clase_id).length
+          if (modalidad === 'Promo' || modalidad === 'Cortesía') {
+            ingresoTeoricoPDF += calcValorTeorico(modalidad, p)
+          } else {
+            const monto = i.monto_cobrado && i.monto_cobrado > 0 ? i.monto_cobrado : calcValorTeorico(modalidad, p)
+            ingresoTeoricoPDF += monto
+          }
+        })
+
         // Comision solo por clases (sin base)
         let comisionClases = 0
         if (r.coach.esquema_comision === 'Porcentaje') {
-          const neto = r.coach.aplica_iva ? r.ingresoTeorico / 1.16 : r.ingresoTeorico
+          const neto = r.coach.aplica_iva ? ingresoTeoricoPDF / 1.16 : ingresoTeoricoPDF
           comisionClases = neto * (r.coach.porcentaje_comision || 0)
         } else if (r.coach.esquema_comision === 'Bono') {
           comisionClases = Math.max(0, r.clasesUnicas - (r.coach.clases_base || 0)) * (r.coach.pago_extra_clase || 0)
         } else if (r.coach.esquema_comision === 'Mixto') {
-          const neto = r.coach.aplica_iva ? r.ingresoTeorico / 1.16 : r.ingresoTeorico
+          const neto = r.coach.aplica_iva ? ingresoTeoricoPDF / 1.16 : ingresoTeoricoPDF
           comisionClases = r.clasesUnicas * (r.coach.tarifa_privada_fija || 0) + neto * (r.coach.porcentaje_comision || 0)
         }
         const totalAPagar = baseProporcional + comisionClases
