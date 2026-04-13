@@ -38,6 +38,36 @@ function calcMonto(modalidad, participantes, clases) {
   return precios[p]?.['Clase única'] || 0
 }
 
+function EditableMonto({ inscripcion, onUpdate }) {
+  const [editing, setEditing] = useState(false)
+  const [valor, setValor] = useState(inscripcion.monto_cobrado || 0)
+
+  const guardar = async () => {
+    await supabase.from("inscripciones").update({ monto_cobrado: parseFloat(valor) }).eq("id", inscripcion.id)
+    setEditing(false)
+    onUpdate()
+  }
+
+  if (editing) return (
+    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+      <input className="form-input" type="number" value={valor}
+        onChange={e => setValor(e.target.value)}
+        style={{ maxWidth: 100, padding: "4px 8px", fontSize: 13 }}
+        autoFocus onKeyDown={e => e.key === "Enter" && guardar()} />
+      <button onClick={guardar} style={{ background: "var(--accent)", border: "none", borderRadius: 6, padding: "4px 8px", fontSize: 12, cursor: "pointer", color: "#000", fontWeight: 600 }}>✓</button>
+      <button onClick={() => { setValor(inscripcion.monto_cobrado); setEditing(false) }}
+        style={{ background: "var(--bg3)", border: "1px solid var(--border)", borderRadius: 6, padding: "4px 8px", fontSize: 12, cursor: "pointer", color: "var(--text2)" }}>✕</button>
+    </div>
+  )
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }} onClick={() => setEditing(true)}>
+      <span style={{ fontFamily: "var(--mono)", fontSize: 13 }}>${ Number(inscripcion.monto_cobrado).toLocaleString("es-MX")}</span>
+      <span style={{ fontSize: 11, color: "var(--text2)" }}>✏️</span>
+    </div>
+  )
+}
+
 const emptyForm = {
   coach_id: '', tipo: 'Privada', modalidad: 'Semanal',
   dia: 'Lunes', hora: '09:00', fecha_inicio: '', fecha_fin: '',
@@ -441,7 +471,7 @@ export default function Clases({ usuario }) {
                 {insDetalle.map(i => (
                   <tr key={i.id}>
                     <td style={{ fontWeight: 500 }}>{i.jugadores?.nombre}</td>
-                    <td style={{ fontFamily: 'var(--mono)', fontSize: 13 }}>${i.monto_cobrado?.toLocaleString('es-MX')}</td>
+                    <td><EditableMonto inscripcion={i} onUpdate={fetchAll} /></td>
                     <td style={{ fontSize: 13 }}>{i.metodo_pago}</td>
                     <td>
                       <button onClick={() => togglePago(i)}
