@@ -88,11 +88,12 @@ export default function Comisiones() {
       let ingresoTeorico = 0
       insMes.forEach(i => {
         const modalidad = i.clases?.modalidad
+        const p = insMes.filter(x => x.clase_id === i.clase_id).length
         if (modalidad === 'Promo' || modalidad === 'Cortesía') {
-          const p = insMes.filter(x => x.clase_id === i.clase_id).length
           ingresoTeorico += calcValorTeorico(modalidad, p)
         } else {
-          ingresoTeorico += i.monto_cobrado || 0
+          const monto = i.monto_cobrado && i.monto_cobrado > 0 ? i.monto_cobrado : calcValorTeorico(modalidad, p)
+          ingresoTeorico += monto
         }
       })
       const cobrado = insMes.filter(i => i.pagado).reduce((a, i) => a + (i.monto_cobrado || 0), 0)
