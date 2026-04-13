@@ -1,352 +1,61 @@
-import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
 
-const DIAS = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo']
-const HORAS = ['06:00','07:00','08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00','21:00']
-const MODALIDADES = ['Semanal','Clase única','Promo','Cortesía']
-const TIPOS = ['Privada','Compartida']
-const METODOS = ['Efectivo','Tarjeta','Transferencia','Pendiente']
-const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
+const navItems = [
+  { id: 'dashboard', label: 'Resumen', icon: '📊', adminOnly: false },
+  { id: 'agenda', label: 'Agenda', icon: '📅', adminOnly: false },
+  { id: 'clases', label: 'Clases', icon: '🎾', adminOnly: false },
+  { id: 'jugadores', label: 'Jugadores', icon: '👤', adminOnly: true },
+  { id: 'coaches', label: 'Coaches', icon: '🏆', adminOnly: true },
+  { id: 'comisiones', label: 'Comisiones', icon: '💰', adminOnly: true },
+  { id: 'precios', label: 'Precios', icon: '🏷️', adminOnly: true },
+]
 
-const emptyForm = {
-  coach_id: '', tipo: 'Privada', modalidad: 'Semanal', dia: 'Lunes', hora: '09:00',
-  fecha_inicio: '', fecha_fin: '',
-  jugadores_ids: [], metodo_pago: 'Efectivo', pagado: false,
-  mes: MESES[new Date().getMonth()], anio: new Date().getFullYear()
-}
-
-function calcFechas(dia, fechaInicio) {
-  if (!fechaInicio) return []
-  const diaSemana = { Lunes:1, Martes:2, Miércoles:3, Jueves:4, Viernes:5, Sábado:6, Domingo:0 }[dia]
-  const inicio = new Date(fechaInicio + 'T12:00:00')
-  const year = inicio.getFullYear(), month = inicio.getMonth()
-  const fechas = []
-  for (let d = 1; d <= 31; d++) {
-    const fecha = new Date(year, month, d)
-    if (fecha.getMonth() !== month) break
-    if (fecha.getDay() === diaSemana && fecha >= inicio) fechas.push(fecha)
-  }
-  return fechas
-}
-
-function calcMonto(modalidad, participantes, clases) {
-  const precios = { 1: { Semanal: 1000, 'Clase única': 1200 }, 2: { Semanal: 550, 'Clase única': 660 }, 3: { Semanal: 435, 'Clase única': 555 }, 4: { Semanal: 375, 'Clase única': 450 } }
-  if (modalidad === 'Promo' || modalidad === 'Cortesía') return 0
-  const p = Math.min(participantes, 4)
-  if (modalidad === 'Semanal') {
-    const base4 = (precios[p]?.Semanal || 0) * 4
-    return Math.round(base4 * clases / 4)
-  }
-  return precios[p]?.['Clase única'] || 0
-}
-
-export default function Clases({ usuario }) {
-  const [clases, setClases] = useState([])
-  const [coaches, setCoaches] = useState([])
-  const [jugadores, setJugadores] = useState([])
-  const [modal, setModal] = useState(false)
-  const [form, setForm] = useState(emptyForm)
-  const [fechas, setFechas] = useState([])
-  const [toast, setToast] = useState('')
-  const [filter, setFilter] = useState({ coach: '', mes: '' })
-  const [detalle, setDetalle] = useState(null)
-  const [inscripciones, setInscripciones] = useState([])
-
-  useEffect(() => { fetchAll() }, [])
-
-  useEffect(() => {
-    if (form.modalidad === 'Semanal' && form.dia && form.fecha_inicio) {
-      const fs = calcFechas(form.dia, form.fecha_inicio)
-      setFechas(fs)
-      if (fs.length > 0) {
-        const last = fs[fs.length - 1]
-        setForm(f => ({ ...f, fecha_fin: last.toISOString().split('T')[0] }))
-      }
-    }
-  }, [form.dia, form.fecha_inicio, form.modalidad])
-
-  const fetchAll = async () => {
-    const [{ data: cs }, { data: js }, { data: cl }, { data: ins }] = await Promise.all([
-      supabase.from('coaches').select('*').eq('activo', true).order('nombre'),
-      supabase.from('jugadores').select('*').eq('activo', true).order('nombre'),
-      supabase.from('clases').select('*, coaches(nombre)').order('created_at', { ascending: false }),
-      supabase.from('inscripciones').select('*, jugadores(nombre), clases(*)'),
-    ])
-    setCoaches(cs || []); setJugadores(js || [])
-    setClases(cl || []); setInscripciones(ins || [])
-    if (!form.coach_id && cs?.length) setForm(f => ({ ...f, coach_id: cs[0].id }))
-  }
-
-  const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 3000) }
-
-  const participantes = form.jugadores_ids.length || 1
-  const numClases = form.modalidad === 'Semanal' ? fechas.length : 1
-  const montoPorJugador = calcMonto(form.modalidad, participantes, numClases)
-
-  const save = async () => {
-    if (!form.coach_id || form.jugadores_ids.length === 0) return
-
-    const clasePayload = {
-      coach_id: form.coach_id,
-      tipo: form.tipo,
-      modalidad: form.modalidad,
-      dia: form.modalidad === 'Semanal' ? form.dia : null,
-      hora: form.hora + ':00',
-      fecha_inicio: form.modalidad === 'Semanal' ? form.fecha_inicio : form.fecha_inicio,
-      fecha_fin: form.modalidad === 'Semanal' ? form.fecha_fin : form.fecha_inicio,
-      activo: true,
-    }
-
-    const { data: claseData, error } = await supabase.from('clases').insert(clasePayload).select().single()
-    if (error || !claseData) { showToast('Error al guardar'); return }
-
-    const inserts = form.jugadores_ids.map(jid => ({
-      clase_id: claseData.id,
-      jugador_id: jid,
-      metodo_pago: form.metodo_pago,
-      pagado: form.pagado,
-      monto_cobrado: montoPorJugador,
-      mes: form.mes,
-      anio: form.anio,
-    }))
-
-    await supabase.from('inscripciones').insert(inserts)
-    showToast('Clase registrada ✓')
-    setModal(false); fetchAll()
-  }
-
-  const togglePago = async (ins) => {
-    await supabase.from('inscripciones').update({ pagado: !ins.pagado }).eq('id', ins.id)
-    fetchAll()
-  }
-
-  const isAdmin = usuario?.rol === 'admin'
-  const clasesFiltradas = clases.filter(c => {
-    if (!isAdmin && c.coach_id !== coaches.find(ch => ch.id === usuario?.coach_id)?.id) return false
-    if (filter.coach && c.coach_id !== filter.coach) return false
-    return true
-  })
+export default function Sidebar({ page, setPage, isAdmin, usuario }) {
+  const items = navItems.filter(i => !i.adminOnly || isAdmin)
 
   return (
-    <div style={{ maxWidth: 900 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-        <div>
-          <h1 style={{ fontSize: 22, fontWeight: 700 }}>Clases</h1>
-          <p style={{ color: 'var(--text2)', fontSize: 14, marginTop: 4 }}>{clasesFiltradas.length} clases registradas</p>
-        </div>
-        {isAdmin && <button className="btn btn-primary" onClick={() => { setForm(emptyForm); setFechas([]); setModal(true) }}>+ Nueva clase</button>}
-      </div>
-
-      {isAdmin && (
-        <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
-          <select className="form-input" style={{ maxWidth: 200 }} value={filter.coach} onChange={e => setFilter(f => ({ ...f, coach: e.target.value }))}>
-            <option value="">Todos los coaches</option>
-            {coaches.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-          </select>
-        </div>
-      )}
-
-      <div className="card" style={{ padding: 0 }}>
-        <table className="table">
-          <thead><tr>
-            <th>Coach</th><th>Tipo</th><th>Modalidad</th><th>Horario</th><th>Jugadores</th><th>Mes</th><th>Pagos</th>
-          </tr></thead>
-          <tbody>
-            {clasesFiltradas.length === 0 && (
-              <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--text2)', padding: 32 }}>Sin clases registradas</td></tr>
-            )}
-            {clasesFiltradas.map(c => {
-              const ins = inscripciones.filter(i => i.clase_id === c.id)
-              const pagados = ins.filter(i => i.pagado).length
-              return (
-                <tr key={c.id} style={{ cursor: 'pointer' }} onClick={() => setDetalle(c)}>
-                  <td style={{ fontWeight: 600 }}>{c.coaches?.nombre}</td>
-                  <td><span className={`badge ${c.tipo === 'Privada' ? 'badge-blue' : 'badge-yellow'}`}>{c.tipo}</span></td>
-                  <td><span className={`badge ${c.modalidad === 'Semanal' ? 'badge-green' : c.modalidad === 'Promo' ? 'badge-gray' : 'badge-blue'}`}>{c.modalidad}</span></td>
-                  <td style={{ fontSize: 13 }}>
-                    {c.dia && <span>{c.dia} </span>}
-                    <span style={{ fontFamily: 'var(--mono)' }}>{c.hora?.slice(0,5)}</span>
-                  </td>
-                  <td style={{ fontSize: 13 }}>{ins.length} jugador{ins.length !== 1 ? 'es' : ''}</td>
-                  <td style={{ fontSize: 13, textTransform: 'capitalize' }}>{ins[0]?.mes || '-'}</td>
-                  <td>
-                    <span className={`badge ${pagados === ins.length && ins.length > 0 ? 'badge-green' : pagados > 0 ? 'badge-yellow' : 'badge-red'}`}>
-                      {pagados}/{ins.length}
-                    </span>
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Modal nueva clase */}
-      {modal && (
-        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setModal(false)}>
-          <div className="modal">
-            <h2 className="modal-title">Nueva clase</h2>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <div className="grid-2">
-                <div className="form-group">
-                  <label className="form-label">Coach</label>
-                  <select className="form-input" value={form.coach_id} onChange={e => setForm({ ...form, coach_id: e.target.value })}>
-                    {coaches.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Tipo</label>
-                  <select className="form-input" value={form.tipo} onChange={e => setForm({ ...form, tipo: e.target.value })}>
-                    {TIPOS.map(t => <option key={t}>{t}</option>)}
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid-2">
-                <div className="form-group">
-                  <label className="form-label">Modalidad</label>
-                  <select className="form-input" value={form.modalidad} onChange={e => setForm({ ...form, modalidad: e.target.value })}>
-                    {MODALIDADES.map(m => <option key={m}>{m}</option>)}
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Hora</label>
-                  <select className="form-input" value={form.hora} onChange={e => setForm({ ...form, hora: e.target.value })}>
-                    {HORAS.map(h => <option key={h}>{h}</option>)}
-                  </select>
-                </div>
-              </div>
-
-              {form.modalidad === 'Semanal' && (
-                <div className="grid-2">
-                  <div className="form-group">
-                    <label className="form-label">Día de la semana</label>
-                    <select className="form-input" value={form.dia} onChange={e => setForm({ ...form, dia: e.target.value })}>
-                      {DIAS.map(d => <option key={d}>{d}</option>)}
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Fecha de inicio</label>
-                    <input className="form-input" type="date" value={form.fecha_inicio} onChange={e => setForm({ ...form, fecha_inicio: e.target.value })} />
-                  </div>
-                </div>
-              )}
-
-              {form.modalidad === 'Clase única' && (
-                <div className="form-group">
-                  <label className="form-label">Fecha de la clase</label>
-                  <input className="form-input" type="date" value={form.fecha_inicio} onChange={e => setForm({ ...form, fecha_inicio: e.target.value })} />
-                </div>
-              )}
-
-              {form.modalidad === 'Semanal' && fechas.length > 0 && (
-                <div style={{ background: 'var(--bg3)', borderRadius: 8, padding: '10px 14px', fontSize: 13, color: 'var(--text2)' }}>
-                  📅 {fechas.length} clases en el mes: {fechas.map(f => f.toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })).join(', ')}
-                </div>
-              )}
-
-              <div className="form-group">
-                <label className="form-label">Jugadores</label>
-                <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 8, padding: 10, maxHeight: 160, overflowY: 'auto' }}>
-                  {jugadores.map(j => (
-                    <label key={j.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', cursor: 'pointer', fontSize: 14 }}>
-                      <input type="checkbox" checked={form.jugadores_ids.includes(j.id)}
-                        onChange={e => setForm(f => ({ ...f, jugadores_ids: e.target.checked ? [...f.jugadores_ids, j.id] : f.jugadores_ids.filter(id => id !== j.id) }))} />
-                      {j.nombre}
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              <div className="grid-2">
-                <div className="form-group">
-                  <label className="form-label">Método de pago</label>
-                  <select className="form-input" value={form.metodo_pago} onChange={e => setForm({ ...form, metodo_pago: e.target.value })}>
-                    {METODOS.map(m => <option key={m}>{m}</option>)}
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Mes de cobro</label>
-                  <select className="form-input" value={form.mes} onChange={e => setForm({ ...form, mes: e.target.value })}>
-                    {MESES.map(m => <option key={m}>{m}</option>)}
-                  </select>
-                </div>
-              </div>
-
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, cursor: 'pointer' }}>
-                <input type="checkbox" checked={form.pagado} onChange={e => setForm({ ...form, pagado: e.target.checked })} />
-                Marcar como pagado
-              </label>
-
-              {form.jugadores_ids.length > 0 && (
-                <div style={{ background: 'rgba(0,229,160,.08)', border: '1px solid rgba(0,229,160,.2)', borderRadius: 8, padding: '12px 14px' }}>
-                  <div style={{ fontSize: 13, color: 'var(--text2)', marginBottom: 4 }}>Resumen de cobro</div>
-                  <div style={{ fontFamily: 'var(--mono)', fontSize: 20, fontWeight: 700, color: 'var(--accent)' }}>
-                    ${montoPorJugador.toLocaleString('es-MX')} <span style={{ fontSize: 13, fontWeight: 400, color: 'var(--text2)' }}>por jugador</span>
-                  </div>
-                  {form.jugadores_ids.length > 1 && (
-                    <div style={{ fontSize: 13, color: 'var(--text2)', marginTop: 2 }}>
-                      Total grupo: ${(montoPorJugador * form.jugadores_ids.length).toLocaleString('es-MX')} ({form.jugadores_ids.length} jugadores)
-                    </div>
-                  )}
-                  <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 2 }}>
-                    {form.modalidad === 'Semanal' ? `${numClases} clases en el mes` : 'Clase única'}
-                  </div>
-                </div>
-              )}
-
-              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 4 }}>
-                <button className="btn btn-secondary" onClick={() => setModal(false)}>Cancelar</button>
-                <button className="btn btn-primary" onClick={save} disabled={!form.coach_id || form.jugadores_ids.length === 0 || !form.fecha_inicio}>
-                  Registrar clase
-                </button>
-              </div>
-            </div>
+    <aside style={{
+      width: 220, background: 'var(--bg2)', borderRight: '1px solid var(--border)',
+      display: 'flex', flexDirection: 'column', minHeight: '100vh',
+      position: 'sticky', top: 0, flexShrink: 0
+    }}>
+      <div style={{ padding: '20px 16px 12px', borderBottom: '1px solid var(--border)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: 22 }}>🎾</span>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 15 }}>Padel Camp</div>
+            <div style={{ fontSize: 11, color: 'var(--text2)' }}>{isAdmin ? 'Administrador' : 'Coach'}</div>
           </div>
         </div>
-      )}
+      </div>
 
-      {/* Modal detalle clase */}
-      {detalle && (
-        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setDetalle(null)}>
-          <div className="modal">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <h2 className="modal-title" style={{ marginBottom: 0 }}>
-                {detalle.coaches?.nombre} — {detalle.tipo}
-              </h2>
-              <button className="btn btn-secondary btn-sm" onClick={() => setDetalle(null)}>Cerrar</button>
-            </div>
-            <div style={{ fontSize: 13, color: 'var(--text2)', marginBottom: 16, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-              <span>{detalle.modalidad}</span>
-              {detalle.dia && <span>📅 {detalle.dia}</span>}
-              <span>🕐 {detalle.hora?.slice(0,5)}</span>
-              <span>{detalle.fecha_inicio} {detalle.fecha_fin && detalle.fecha_fin !== detalle.fecha_inicio ? `→ ${detalle.fecha_fin}` : ''}</span>
-            </div>
+      <nav style={{ flex: 1, padding: '12px 8px' }}>
+        {items.map(item => (
+          <button key={item.id} onClick={() => setPage(item.id)}
+            style={{
+              width: '100%', display: 'flex', alignItems: 'center', gap: 10,
+              padding: '10px 12px', borderRadius: 8, border: 'none',
+              background: page === item.id ? 'var(--bg3)' : 'transparent',
+              color: page === item.id ? 'var(--text)' : 'var(--text2)',
+              fontSize: 14, fontWeight: page === item.id ? 600 : 400,
+              cursor: 'pointer', transition: 'all .15s', marginBottom: 2,
+              borderLeft: page === item.id ? '2px solid var(--accent)' : '2px solid transparent'
+            }}>
+            <span>{item.icon}</span>
+            {item.label}
+          </button>
+        ))}
+      </nav>
 
-            <table className="table">
-              <thead><tr><th>Jugador</th><th>Monto</th><th>Método</th><th>Pago</th></tr></thead>
-              <tbody>
-                {inscripciones.filter(i => i.clase_id === detalle.id).map(i => (
-                  <tr key={i.id}>
-                    <td style={{ fontWeight: 500 }}>{i.jugadores?.nombre}</td>
-                    <td style={{ fontFamily: 'var(--mono)', fontSize: 13 }}>${i.monto_cobrado?.toLocaleString('es-MX')}</td>
-                    <td style={{ fontSize: 13 }}>{i.metodo_pago}</td>
-                    <td>
-                      <button onClick={() => togglePago(i)}
-                        className={`badge ${i.pagado ? 'badge-green' : 'badge-red'}`}
-                        style={{ border: 'none', cursor: 'pointer' }}>
-                        {i.pagado ? '✅ Pagado' : '❌ Pendiente'}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+      <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)' }}>
+        <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {usuario?.nombre || 'Usuario'}
         </div>
-      )}
-
-      {toast && <div className="toast"><span style={{ color: 'var(--accent)' }}>✓</span>{toast}</div>}
-    </div>
+        <button className="btn btn-secondary btn-sm" style={{ width: '100%', justifyContent: 'center' }}
+          onClick={() => supabase.auth.signOut()}>
+          Cerrar sesión
+        </button>
+      </div>
+    </aside>
   )
 }
