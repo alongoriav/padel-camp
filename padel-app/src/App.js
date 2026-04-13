@@ -7,6 +7,7 @@ import Jugadores from './components/Jugadores'
 import Clases from './components/Clases'
 import Agenda from './components/Agenda'
 import Comisiones from './components/Comisiones'
+import Precios from './components/Precios'
 import Sidebar from './components/Sidebar'
 
 export default function App() {
@@ -52,6 +53,7 @@ export default function App() {
     jugadores: isAdmin ? <Jugadores /> : null,
     coaches: isAdmin ? <Coaches /> : null,
     comisiones: isAdmin ? <Comisiones /> : null,
+    precios: isAdmin ? <Precios /> : null,
   }
 
   return (
