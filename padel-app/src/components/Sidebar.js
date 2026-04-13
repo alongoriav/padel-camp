@@ -20,14 +20,9 @@ export default function Sidebar({ page, setPage, isAdmin, usuario }) {
       display: 'flex', flexDirection: 'column', minHeight: '100vh',
       position: 'sticky', top: 0, flexShrink: 0
     }}>
-      <div style={{ padding: '20px 16px 12px', borderBottom: '1px solid var(--border)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontSize: 22 }}>🎾</span>
-          <div>
-            <div style={{ fontWeight: 700, fontSize: 15 }}>Padel Camp</div>
-            <div style={{ fontSize: 11, color: 'var(--text2)' }}>{isAdmin ? 'Administrador' : 'Coach'}</div>
-          </div>
-        </div>
+      <div style={{ padding: '16px 16px 12px', borderBottom: '1px solid var(--border)' }}>
+        <img src="/LOGO_FINAL_PADEL_CAMP.jpg" alt="Padel Camp" style={{ width: '100%', maxWidth: 160, display: 'block', margin: '0 auto 8px', borderRadius: 6 }} />
+        <div style={{ textAlign: 'center', fontSize: 11, color: 'var(--text2)' }}>{isAdmin ? 'Administrador' : 'Coach'}</div>
       </div>
 
       <nav style={{ flex: 1, padding: '12px 8px' }}>
