@@ -140,7 +140,29 @@ export default function Comisiones() {
       const { jsPDF } = window.jspdf
       const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
       const W = 210, M = 16
-      const fmt2 = (n) => '$' + (n||0).toLocaleString('es-MX', {minimumFractionDigits:0, maximumFractionDigits:0})
+
+      // Calculate date range info
+      const calcDiasRango = (desde, hasta, mes) => {
+        if (desde && hasta) {
+          const d1 = new Date(desde), d2 = new Date(hasta)
+          return Math.round((d2 - d1) / (1000*60*60*24)) + 1
+        }
+        // Full month
+        const now = new Date()
+        const year = now.getFullYear()
+        const mesIdx = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'].indexOf(mes)
+        if (mesIdx >= 0) return new Date(year, mesIdx+1, 0).getDate()
+        return 30
+      }
+
+      const diasMes = (mes) => {
+        const now = new Date()
+        const mesIdx = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'].indexOf(mes)
+        if (mesIdx >= 0) return new Date(now.getFullYear(), mesIdx+1, 0).getDate()
+        return 30
+      }
+
+      const fmt2 = (n) => '$' + Math.round(n||0).toLocaleString('es-MX')
 
       const txt = (text, x, y, size=9, bold=false, color=[40,50,70], align='left') => {
         doc.setFontSize(size); doc.setFont('helvetica', bold ? 'bold' : 'normal')
@@ -155,68 +177,85 @@ export default function Comisiones() {
         if (idx > 0) doc.addPage()
         let y = M
 
-        // Header page
+        // Calculate base proporcional
+        const diasRango = calcDiasRango(desde, hasta, mesSeleccionado)
+        const diasDelMes = modoFiltro === 'mes' ? diasMes(mesSeleccionado) : 30
+        const baseProporcional = (r.coach.sueldo_base || 0) / diasDelMes * diasRango
+
+        // Comision solo por clases (sin base)
+        let comisionClases = 0
+        if (r.coach.esquema_comision === 'Porcentaje') {
+          const neto = r.coach.aplica_iva ? r.ingresoTeorico / 1.16 : r.ingresoTeorico
+          comisionClases = neto * (r.coach.porcentaje_comision || 0)
+        } else if (r.coach.esquema_comision === 'Bono') {
+          comisionClases = Math.max(0, r.clasesUnicas - (r.coach.clases_base || 0)) * (r.coach.pago_extra_clase || 0)
+        } else if (r.coach.esquema_comision === 'Mixto') {
+          const neto = r.coach.aplica_iva ? r.ingresoTeorico / 1.16 : r.ingresoTeorico
+          comisionClases = r.clasesUnicas * (r.coach.tarifa_privada_fija || 0) + neto * (r.coach.porcentaje_comision || 0)
+        }
+        const totalAPagar = baseProporcional + comisionClases
+
+        // Header
         doc.setFillColor(15, 17, 26)
         doc.rect(0, 0, W, 30, 'F')
         doc.setFillColor(0, 229, 160)
         doc.rect(0, 0, 4, 30, 'F')
         txt('PADEL CAMP', M+4, 11, 16, true, [0,229,160])
-        txt('Reporte de Comisiones', M+4, 19, 10, false, [160,175,200])
+        txt('Estado de Cuenta — Comisiones', M+4, 19, 10, false, [160,175,200])
         txt(`Periodo: ${labelPeriodo}`, M+4, 26, 8, false, [100,120,150])
         txt(new Date().toLocaleDateString('es-MX', {day:'numeric',month:'long',year:'numeric'}), W-M, 26, 8, false, [100,120,150], 'right')
         y = 38
 
-        // Coach header card
+        // Coach card
         doc.setFillColor(24, 30, 46)
-        doc.roundedRect(M, y, W-M*2, 28, 3, 3, 'F')
+        doc.roundedRect(M, y, W-M*2, 24, 3, 3, 'F')
         doc.setFillColor(0, 229, 160)
-        doc.roundedRect(M, y, 4, 28, 2, 2, 'F')
+        doc.roundedRect(M, y, 4, 24, 2, 2, 'F')
         txt(r.coach.nombre, M+8, y+9, 16, true, [230,240,255])
-        txt(r.coach.esquema_comision, M+8, y+16, 9, false, [0,200,140])
+        txt(`Periodo: ${diasRango} días`, M+8, y+16, 8, false, [100,130,160])
+        txt(fmt2(totalAPagar), W-M-2, y+12, 18, true, [0,229,160], 'right')
+        txt('TOTAL A PAGAR', W-M-2, y+19, 7, false, [100,130,160], 'right')
+        y += 30
 
-        // Regla
-        let regla = ''
-        if (r.coach.esquema_comision === 'Porcentaje') regla = `Sueldo base ${fmt2(r.coach.sueldo_base)} + ${(r.coach.porcentaje_comision*100).toFixed(0)}% sobre ${r.coach.aplica_iva ? 'neto (ingreso ÷ 1.16)' : 'bruto'}`
-        if (r.coach.esquema_comision === 'Bono') regla = `Base ${fmt2(r.coach.sueldo_base)} (mín. ${r.coach.horas_base_bono}hrs) + ${fmt2(r.coach.pago_extra_clase)}/clase extra después de clase ${r.coach.clases_base}`
-        if (r.coach.esquema_comision === 'Mixto') regla = `Base ${fmt2(r.coach.sueldo_base)} + ${fmt2(r.coach.tarifa_privada_fija)} por privada + ${(r.coach.porcentaje_comision*100).toFixed(0)}% compartida`
-        txt(regla, M+8, y+23, 7.5, false, [110,130,160])
+        // Payment breakdown
+        doc.setFillColor(20, 25, 40)
+        doc.roundedRect(M, y, W-M*2, 20, 2, 2, 'F')
+        
+        // Left: base
+        txt('Sueldo base proporcional', M+6, y+8, 8, false, [130,150,180])
+        txt(`$${Math.round(r.coach.sueldo_base||0).toLocaleString('es-MX')} ÷ ${diasDelMes} días × ${diasRango} días`, M+6, y+14, 7.5, false, [90,110,140])
+        txt(fmt2(baseProporcional), M+80, y+12, 12, true, [200,215,240], 'center')
 
-        // Comisión destacada
-        txt(fmt2(r.comision), W-M-2, y+13, 18, true, [0,229,160], 'right')
-        txt('COMISIÓN DEL PERIODO', W-M-2, y+20, 7, false, [100,130,160], 'right')
-        y += 34
+        // Right: comision clases
+        txt('Comisión por clases', M+110, y+8, 8, false, [130,150,180])
+        let reglaCorta = ''
+        if (r.coach.esquema_comision === 'Porcentaje') reglaCorta = `${(r.coach.porcentaje_comision*100).toFixed(0)}% sobre neto${r.coach.aplica_iva ? ' (÷1.16)' : ''}`
+        if (r.coach.esquema_comision === 'Bono') reglaCorta = `$${r.coach.pago_extra_clase}/clase extra >${r.coach.clases_base}`
+        if (r.coach.esquema_comision === 'Mixto') reglaCorta = `$${r.coach.tarifa_privada_fija}/priv + ${(r.coach.porcentaje_comision*100).toFixed(0)}% comp`
+        txt(reglaCorta, M+110, y+14, 7.5, false, [90,110,140])
+        txt(fmt2(comisionClases), W-M-6, y+12, 12, true, [200,215,240], 'right')
+        y += 26
 
-        // Stats row
-        const statCols = [
-          { label: 'Clases impartidas', val: String(r.clasesUnicas) },
-          { label: 'Ingreso teórico', val: fmt2(r.ingresoTeorico) },
-          { label: 'Monto cobrado', val: fmt2(r.cobrado) },
-          { label: 'Sueldo base', val: fmt2(r.coach.sueldo_base) },
-        ]
-        const cw = (W-M*2) / 4
-        statCols.forEach((s, i) => {
-          const x = M + i*cw
-          doc.setFillColor(20, 25, 40)
-          doc.rect(x, y, cw-2, 14, 'F')
-          txt(s.val, x + cw/2 - 1, y+7, 11, true, [200,215,240], 'center')
-          txt(s.label, x + cw/2 - 1, y+12, 7, false, [90,110,140], 'center')
-        })
-        y += 20
+        // Total line
+        doc.setFillColor(0, 229, 160)
+        doc.rect(M, y, W-M*2, 0.5, 'F')
+        y += 5
+        txt(`TOTAL A PAGAR: ${fmt2(baseProporcional)} + ${fmt2(comisionClases)} =`, M, y, 9, false, [130,150,180])
+        txt(fmt2(totalAPagar), W-M, y, 12, true, [0,229,160], 'right')
+        y += 10
 
         // Table title
-        txt('DETALLE DE CLASES DEL PERIODO', M, y, 8, true, [80,100,130])
+        txt('CLASES DEL PERIODO', M, y, 8, true, [80,100,130])
         y += 5
 
         // Table header
         const cols = [
-          { label: 'Jugador', w: 44 },
-          { label: 'Día', w: 22 },
+          { label: 'Jugador', w: 50 },
+          { label: 'Día', w: 24 },
           { label: 'Horario', w: 18 },
-          { label: 'Tipo', w: 20 },
-          { label: 'Modalidad', w: 22 },
-          { label: 'Mes', w: 16 },
-          { label: 'Monto', w: 22 },
-          { label: 'Estado', w: 14 },
+          { label: 'Tipo', w: 22 },
+          { label: 'Modalidad', w: 26 },
+          { label: 'Mes', w: 18 },
         ]
         doc.setFillColor(20, 26, 42)
         doc.rect(M, y, W-M*2, 6, 'F')
@@ -227,7 +266,6 @@ export default function Comisiones() {
         })
         y += 7
 
-        // Table rows
         const insCoach = filtrarIns(inscripciones).filter(i => i.clases?.coach_id === r.coach.id)
         insCoach.forEach((ins, i) => {
           if (y > 270) { doc.addPage(); y = M }
@@ -242,11 +280,9 @@ export default function Comisiones() {
             { val: ins.clases?.tipo || '—', color: [140,160,190] },
             { val: ins.clases?.modalidad || '—', color: ins.clases?.modalidad === 'Promo' ? [200,160,60] : [140,160,190] },
             { val: ins.mes || '—', color: [140,160,190] },
-            { val: fmt2(ins.monto_cobrado), color: [200,215,240] },
-            { val: ins.pagado ? 'Pagado' : 'Pendiente', color: ins.pagado ? [0,200,130] : [220,90,90] },
           ]
           row.forEach((cell, j) => {
-            txt(String(cell.val).substring(0,18), cx, y+4, 7.5, false, cell.color)
+            txt(String(cell.val).substring(0,22), cx, y+4, 7.5, false, cell.color)
             cx += cols[j].w
           })
           y += 5.5
@@ -257,15 +293,12 @@ export default function Comisiones() {
           y += 8
         }
 
-        y += 4
-        // Summary line
-        doc.setDrawColor(0, 229, 160); doc.setLineWidth(0.3)
-        doc.line(M, y, W-M, y)
-        y += 5
-        txt(`Total clases: ${r.clasesUnicas}`, M, y, 8, false, [120,140,170])
-        txt(`Ingreso teórico: ${fmt2(r.ingresoTeorico)}`, M+50, y, 8, false, [120,140,170])
-        txt(`Cobrado: ${fmt2(r.cobrado)}`, M+110, y, 8, false, [120,140,170])
-        txt(`COMISIÓN: ${fmt2(r.comision)}`, W-M, y, 9, true, [0,229,160], 'right')
+        // Footer total
+        y += 6
+        doc.setFillColor(15, 19, 30)
+        doc.rect(M, y, W-M*2, 10, 'F')
+        txt(`Total clases impartidas: ${r.clasesUnicas}`, M+4, y+6, 8, false, [120,140,170])
+        txt(`TOTAL A PAGAR: ${fmt2(totalAPagar)}`, W-M-4, y+6, 10, true, [0,229,160], 'right')
       })
 
       // Page numbers
@@ -273,7 +306,7 @@ export default function Comisiones() {
       for (let i = 1; i <= pages; i++) {
         doc.setPage(i)
         doc.setFontSize(7); doc.setTextColor(80,100,130)
-        doc.text(`Padel Camp · Reporte de Comisiones · ${labelPeriodo}`, M, 293)
+        doc.text(`Padel Camp · Estado de Cuenta · ${labelPeriodo}`, M, 293)
         doc.text(`${i} / ${pages}`, W-M, 293, {align:'right'})
       }
 
