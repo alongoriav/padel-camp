@@ -441,33 +441,10 @@ export default function Dashboard({ usuario }) {
                 <div style={{ fontWeight: 600, fontSize: 14 }}>{c.nombre}</div>
                 <div style={{ fontSize: 11, color: 'var(--text2)' }}>{c.clasesPagadas} clases pagadas</div>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 10 }}>
-                <div style={{ background: 'var(--bg2)', borderRadius: 6, padding: '6px 8px' }}>
-                  <div style={{ fontFamily: 'var(--mono)', fontSize: 13, fontWeight: 700, color: 'var(--accent)' }}>{fmt(c.cobrado)}</div>
-                  <div style={{ fontSize: 10, color: 'var(--text2)' }}>Cobrado</div>
-                </div>
-                <div style={{ background: 'var(--bg2)', borderRadius: 6, padding: '6px 8px' }}>
-                  <div style={{ fontFamily: 'var(--mono)', fontSize: 13, fontWeight: 700, color: 'var(--warn)' }}>{fmt(c.pendiente)}</div>
-                  <div style={{ fontSize: 10, color: 'var(--text2)' }}>Pendiente</div>
-                </div>
-              </div>
-              {/* % comisión */}
-              <div style={{ background: 'var(--bg2)', borderRadius: 8, padding: '10px 12px', marginBottom: 8 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                  <span style={{ fontSize: 11, color: 'var(--text2)' }}>% costo coach s/ cobrado</span>
-                  <span style={{ fontFamily: 'var(--mono)', fontSize: 16, fontWeight: 700, color: c.pctTotal > 80 ? 'var(--danger)' : c.pctTotal > 60 ? 'var(--warn)' : 'var(--accent)' }}>{c.pctTotal}%</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ fontSize: 11, color: 'var(--text2)' }}>Total a pagar</span>
-                  <span style={{ fontFamily: 'var(--mono)', fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>{fmt(c.comision)}</span>
-                </div>
-              </div>
-              <div style={{ height: 6, borderRadius: 3, background: 'var(--bg2)', overflow: 'hidden' }}>
-                <div style={{ height: '100%', borderRadius: 3, background: 'var(--accent)', width: pct(c.cobrado, c.programado) }} />
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--text2)', marginTop: 4 }}>
-                <span>Programado: {fmt(c.programado)}</span>
-                <span style={{ color: 'var(--accent)' }}>{pct(c.cobrado, c.programado)} cobrado</span>
+              {/* % comisión — limpio */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg2)', borderRadius: 8, padding: '10px 14px' }}>
+                <span style={{ fontSize: 12, color: 'var(--text2)' }}>% costo coach s/ cobrado</span>
+                <span style={{ fontFamily: 'var(--mono)', fontSize: 20, fontWeight: 700, color: c.pctTotal > 80 ? 'var(--danger)' : c.pctTotal > 60 ? 'var(--warn)' : 'var(--accent)' }}>{c.pctTotal}%</span>
               </div>
             </div>
           ))}
