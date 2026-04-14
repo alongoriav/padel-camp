@@ -150,6 +150,15 @@ export default function Clases({ usuario }) {
     }
   }
 
+  const eliminarClase = async (claseId) => {
+    if (!window.confirm('¿Eliminar esta clase y todas sus inscripciones? Esta acción no se puede deshacer.')) return
+    await supabase.from('inscripciones').delete().eq('clase_id', claseId)
+    await supabase.from('clases').delete().eq('id', claseId)
+    setDetalle(null)
+    showToast('Clase eliminada ✓')
+    fetchAll()
+  }
+
   const agregarJugadorDetalle = async (j) => {
     const insDetalle = inscripciones.filter(i => i.clase_id === detalle.id)
     const monto = calcMonto(detalle.modalidad, insDetalle.length + 1, 1)
@@ -400,7 +409,13 @@ export default function Clases({ usuario }) {
                   <span style={{ fontSize: 13, color: 'var(--text2)' }}>{detalle.fecha_inicio}</span>
                 </div>
               </div>
-              <button className="btn btn-secondary btn-sm" onClick={() => setDetalle(null)}>Cerrar</button>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn btn-sm" onClick={() => eliminarClase(detalle.id)}
+                  style={{ background: 'rgba(255,59,48,.15)', border: '1px solid rgba(255,59,48,.3)', color: 'var(--danger)', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', fontSize: 13 }}>
+                  🗑 Eliminar clase
+                </button>
+                <button className="btn btn-secondary btn-sm" onClick={() => setDetalle(null)}>Cerrar</button>
+              </div>
             </div>
 
             <table className="table" style={{ marginBottom: 16 }}>
