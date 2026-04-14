@@ -7,6 +7,7 @@ const empty = {
   aplica_porcentaje: false, porcentaje_comision: '', aplica_iva: true,
   aplica_bono_clases: false, clases_base: 55, pago_extra_clase: '',
   aplica_horas_minimas: false, horas_base_bono: 40,
+  tramo1_pct: 30, tramo2_pct: 50, tramo3_pct: 70, tramo4_pct: 100,
   aplica_tarifa_privada: false, tarifa_privada_fija: '',
   aplica_porcentaje_compartida: false, porcentaje_compartida: '',
 }
@@ -90,6 +91,10 @@ export default function Coaches() {
       pago_extra_clase: c.pago_extra_clase || '',
       aplica_horas_minimas: !!(c.horas_base_bono),
       horas_base_bono: c.horas_base_bono || 40,
+      tramo1_pct: c.tramo1_pct != null ? c.tramo1_pct * 100 : 30,
+      tramo2_pct: c.tramo2_pct != null ? c.tramo2_pct * 100 : 50,
+      tramo3_pct: c.tramo3_pct != null ? c.tramo3_pct * 100 : 70,
+      tramo4_pct: c.tramo4_pct != null ? c.tramo4_pct * 100 : 100,
       aplica_tarifa_privada: !!(c.tarifa_privada_fija),
       tarifa_privada_fija: c.tarifa_privada_fija || '',
       aplica_porcentaje_compartida: !!(c.porcentaje_comision && c.esquema_comision === 'Mixto'),
@@ -115,6 +120,10 @@ export default function Coaches() {
       clases_base: form.aplica_bono_clases ? parseInt(form.clases_base) : null,
       pago_extra_clase: form.aplica_bono_clases ? parseFloat(form.pago_extra_clase) : null,
       horas_base_bono: form.aplica_horas_minimas ? parseFloat(form.horas_base_bono) : null,
+      tramo1_pct: form.esquema_comision === 'Bono' ? parseFloat(form.tramo1_pct || 30) / 100 : null,
+      tramo2_pct: form.esquema_comision === 'Bono' ? parseFloat(form.tramo2_pct || 50) / 100 : null,
+      tramo3_pct: form.esquema_comision === 'Bono' ? parseFloat(form.tramo3_pct || 70) / 100 : null,
+      tramo4_pct: form.esquema_comision === 'Bono' ? parseFloat(form.tramo4_pct || 100) / 100 : null,
       tarifa_privada_fija: form.aplica_tarifa_privada ? parseFloat(form.tarifa_privada_fija) : null,
     }
 
@@ -242,11 +251,35 @@ export default function Coaches() {
                   active={form.aplica_horas_minimas}
                   onToggle={() => set('aplica_horas_minimas', !form.aplica_horas_minimas)}>
                   <div className="form-group">
-                    <label className="form-label">Mínimo de horas mensuales</label>
+                    <label className="form-label">Clases mínimas mensuales</label>
                     <input className="form-input" type="number" value={form.horas_base_bono}
                       onChange={e => set('horas_base_bono', e.target.value)} placeholder="40" />
                   </div>
-                  <p style={{ fontSize: 12, color: 'var(--text2)' }}>Si no llega al mínimo, se paga proporcional (hrs reales ÷ mínimo × sueldo base)</p>
+                  <p style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 12 }}>
+                    Tabla de alcance — % del sueldo base según clases pagadas vs mínimo:
+                  </p>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8 }}>
+                    {[
+                      { key: 'tramo1_pct', rango: '0% – 30%', color: 'var(--danger)' },
+                      { key: 'tramo2_pct', rango: '30.01% – 60%', color: 'var(--warn)' },
+                      { key: 'tramo3_pct', rango: '60.01% – 99.99%', color: '#22d3ee' },
+                      { key: 'tramo4_pct', rango: '100%+', color: 'var(--accent)' },
+                    ].map(t => (
+                      <div key={t.key} style={{ background: 'var(--bg2)', borderRadius: 8, padding: '10px', border: `1px solid ${t.color}33` }}>
+                        <div style={{ fontSize: 10, color: t.color, fontWeight: 600, marginBottom: 6 }}>{t.rango}</div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <input className="form-input" type="number" min="0" max="100"
+                            value={form[t.key]}
+                            onChange={e => set(t.key, e.target.value)}
+                            style={{ padding: '6px 8px', fontSize: 14, fontWeight: 700, color: t.color, textAlign: 'center' }} />
+                          <span style={{ fontSize: 13, color: 'var(--text2)' }}>%</span>
+                        </div>
+                        <div style={{ fontSize: 10, color: 'var(--text2)', marginTop: 4 }}>
+                          = {form.sueldo_base ? '$' + Math.round(Number(form.sueldo_base) * Number(form[t.key]) / 100).toLocaleString('es-MX') : '—'}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </RuleBlock>
 
                 <RuleBlock title="🎾 Pago extra por clases adicionales"
@@ -299,7 +332,7 @@ export default function Coaches() {
                 💡 <strong style={{ color: 'var(--text)' }}>Resumen: </strong>
                 {form.sueldo_base ? `Base $${Number(form.sueldo_base || 0).toLocaleString('es-MX')}` : 'Sin base'}
                 {form.esquema_comision === 'Porcentaje' && form.aplica_porcentaje && form.porcentaje_comision ? ` + ${form.porcentaje_comision}% sobre ${form.aplica_iva ? 'neto (sin IVA)' : 'bruto'}` : ''}
-                {form.esquema_comision === 'Bono' && form.aplica_horas_minimas ? ` (proporcional si <${form.horas_base_bono}hrs)` : ''}
+                {form.esquema_comision === 'Bono' && form.aplica_horas_minimas ? ` · mín ${form.horas_base_bono} clases · tramos: ${form.tramo1_pct}%/${form.tramo2_pct}%/${form.tramo3_pct}%/${form.tramo4_pct}%` : ''}
                 {form.esquema_comision === 'Bono' && form.aplica_bono_clases ? ` + $${form.pago_extra_clase || 0} por clase >${form.clases_base}` : ''}
                 {form.esquema_comision === 'Mixto' && form.aplica_tarifa_privada ? ` + $${form.tarifa_privada_fija || 0} por privada` : ''}
                 {form.esquema_comision === 'Mixto' && form.aplica_porcentaje_compartida ? ` + ${form.porcentaje_compartida || 0}% compartida${form.aplica_iva ? ' (neto)' : ''}` : ''}
