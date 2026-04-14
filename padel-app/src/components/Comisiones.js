@@ -17,7 +17,7 @@ function calcValorTeorico(modalidad, participantes) {
   return PRECIOS_TEORICOS[p]?.['Clase única'] || 0
 }
 
-function calcComision(coach, clases, ingresoTeorico, horasMinimas) {
+function calcComision(coach, clases, ingresoTeorico) {
   if (!coach) return 0
   if (coach.esquema_comision === 'Porcentaje') {
     const base = coach.sueldo_base || 0
@@ -27,10 +27,14 @@ function calcComision(coach, clases, ingresoTeorico, horasMinimas) {
   if (coach.esquema_comision === 'Bono') {
     const horasMin = coach.horas_base_bono || 40
     const clasesPagadas = clases
-    // Base proporcional si no llega al mínimo de horas (1 clase = 1 hora)
-    const baseProporcional = clasesPagadas >= horasMin
-      ? (coach.sueldo_base || 0)
-      : (coach.sueldo_base || 0) * (clasesPagadas / horasMin)
+    const pctAlcance = clasesPagadas / horasMin
+    // Tabla de tramos
+    let pctBase
+    if (pctAlcance >= 1.0) pctBase = coach.tramo4_pct ?? 1.0
+    else if (pctAlcance > 0.6) pctBase = coach.tramo3_pct ?? 0.7
+    else if (pctAlcance > 0.3) pctBase = coach.tramo2_pct ?? 0.5
+    else pctBase = coach.tramo1_pct ?? 0.3
+    const baseProporcional = (coach.sueldo_base || 0) * pctBase
     const extra = Math.max(0, clasesPagadas - (coach.clases_base || 0)) * (coach.pago_extra_clase || 0)
     return baseProporcional + extra
   }
@@ -260,7 +264,11 @@ export default function Comisiones() {
         txt('Comisión por clases', M+110, y+8, 8, false, [130,150,180])
         let reglaCorta = ''
         if (r.coach.esquema_comision === 'Porcentaje') reglaCorta = `${(r.coach.porcentaje_comision*100).toFixed(0)}% sobre neto${r.coach.aplica_iva ? ' (÷1.16)' : ''}`
-        if (r.coach.esquema_comision === 'Bono') reglaCorta = `Base proporcional (${r.clasesUnicas}/${r.coach.horas_base_bono} hrs) + $${r.coach.pago_extra_clase}/clase>${r.coach.clases_base}`
+        if (r.coach.esquema_comision === 'Bono') {
+          const pct = r.clasesUnicas / (r.coach.horas_base_bono || 40)
+          const tramo = pct >= 1 ? `100%+: ${Math.round((r.coach.tramo4_pct??1)*100)}%` : pct > 0.6 ? `60-99%: ${Math.round((r.coach.tramo3_pct??0.7)*100)}%` : pct > 0.3 ? `30-60%: ${Math.round((r.coach.tramo2_pct??0.5)*100)}%` : `0-30%: ${Math.round((r.coach.tramo1_pct??0.3)*100)}%`
+          reglaCorta = `${r.clasesUnicas}/${r.coach.horas_base_bono} clases · tramo ${tramo} del base`
+        }
         if (r.coach.esquema_comision === 'Mixto') reglaCorta = `$${r.coach.tarifa_privada_fija}/priv + ${(r.coach.porcentaje_comision*100).toFixed(0)}% comp`
         txt(reglaCorta, M+110, y+14, 7.5, false, [90,110,140])
         txt(fmt2(comisionClases), W-M-6, y+12, 12, true, [200,215,240], 'right')
@@ -426,7 +434,11 @@ export default function Comisiones() {
                   <td style={{ fontFamily: 'var(--mono)', fontSize: 13 }}>{fmt(r.ingresoTeorico)}</td>
                   <td style={{ fontFamily: 'var(--mono)', fontSize: 14, fontWeight: 700, color: 'var(--accent)' }}>{fmt(r.comision)}</td>
                   <td style={{ fontSize: 12, color: 'var(--text2)' }}>
-                    {r.coach.esquema_comision === 'Bono' && `Base ${fmt(r.coach.sueldo_base)} proporcional a ${r.coach.horas_base_bono}hrs mín + ${fmt(r.coach.pago_extra_clase)}/clase>${r.coach.clases_base}`}
+                    {r.coach.esquema_comision === 'Bono' && (() => {
+                    const pct = r.clasesUnicas / (r.coach.horas_base_bono || 40)
+                    const tramo = pct >= 1 ? `100%+ → ${Math.round((r.coach.tramo4_pct??1)*100)}%` : pct > 0.6 ? `60-99% → ${Math.round((r.coach.tramo3_pct??0.7)*100)}%` : pct > 0.3 ? `30-60% → ${Math.round((r.coach.tramo2_pct??0.5)*100)}%` : `0-30% → ${Math.round((r.coach.tramo1_pct??0.3)*100)}%`
+                    return `${r.clasesUnicas}/${r.coach.horas_base_bono} clases · ${tramo} del base`
+                  })()}
                     {r.coach.esquema_comision === 'Porcentaje' && `Base ${fmt(r.coach.sueldo_base)} + ${(r.coach.porcentaje_comision*100).toFixed(0)}% ${r.coach.aplica_iva ? 'neto' : 'bruto'}`}
                     {r.coach.esquema_comision === 'Mixto' && `Base ${fmt(r.coach.sueldo_base)} + ${fmt(r.coach.tarifa_privada_fija)}/priv + ${(r.coach.porcentaje_comision*100).toFixed(0)}%`}
                   </td>
