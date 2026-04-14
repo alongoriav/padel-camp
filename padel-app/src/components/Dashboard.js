@@ -186,6 +186,15 @@ export default function Dashboard({ usuario }) {
     return Object.values(map).sort((a, b) => b.total - a.total).slice(0, 8)
   })()
 
+  // Check-in stats
+  const checkInStats = (() => {
+    const checkIns = filtered.filter(i => i.metodo_pago === 'Check-in')
+    const totalCheckin = checkIns.reduce((a, i) => a + (i.monto_checkin || 200), 0)
+    const totalComplemento = checkIns.filter(i => i.complemento_pagado).reduce((a, i) => a + (i.monto_complemento || 0), 0)
+    const pendienteComplemento = checkIns.filter(i => !i.complemento_pagado).reduce((a, i) => a + (i.monto_complemento || 0), 0)
+    return { count: checkIns.length, totalCheckin, totalComplemento, pendienteComplemento }
+  })()
+
   // Distribución modalidad
   const distModalidad = (() => {
     const map = {}
@@ -334,7 +343,7 @@ export default function Dashboard({ usuario }) {
       )}
 
       {/* KPIs */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: 12, marginBottom: 24 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 12, marginBottom: 24 }}>
         {[
           { label: 'Programado', value: fmt(totalProgramado), color: 'var(--text)', sub: '100%' },
           { label: 'Cobrado', value: fmt(totalCobrado), color: 'var(--accent)', sub: tasaCobro },
@@ -342,6 +351,7 @@ export default function Dashboard({ usuario }) {
           { label: 'Clases', value: totalClases, color: 'var(--accent2)', sub: 'impartidas' },
           { label: 'Jugadores', value: jugadoresActivos, color: '#a78bfa', sub: 'activos' },
           { label: 'Tasa cobro', value: tasaCobro, color: totalCobrado/totalProgramado > 0.8 ? 'var(--accent)' : 'var(--warn)', sub: 'del total' },
+        { label: 'Check-ins', value: checkInStats.count, color: '#f97316', sub: `$${Math.round(checkInStats.pendienteComplemento/1000)}k complemento pend.` },
         ].map(k => (
           <div className="stat-card" key={k.label} style={{ padding: 14 }}>
             <div style={{ fontSize: 9, color: 'var(--text2)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '.05em' }}>{k.label}</div>
