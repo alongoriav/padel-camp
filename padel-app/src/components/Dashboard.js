@@ -186,6 +186,36 @@ export default function Dashboard({ usuario }) {
     return Object.values(map).sort((a, b) => b.total - a.total).slice(0, 8)
   })()
 
+  // Recontrataciones por coach
+  const recontrataciones = (() => {
+    const result = {}
+    // Group inscriptions by coach -> jugador -> mes
+    const coachJugadorMes = {}
+    filtered.forEach(i => {
+      const coach = i.clases?.coaches?.nombre || 'Sin coach'
+      const jugador = i.jugador_id
+      const mes = MESES.indexOf(i.mes)
+      if (mes < 0) return
+      if (!coachJugadorMes[coach]) coachJugadorMes[coach] = {}
+      if (!coachJugadorMes[coach][jugador]) coachJugadorMes[coach][jugador] = new Set()
+      coachJugadorMes[coach][jugador].add(mes)
+    })
+    // Count jugadores that appear in 2+ months per coach
+    Object.entries(coachJugadorMes).forEach(([coach, jugadores]) => {
+      let recontratados = 0
+      let totalJugadores = Object.keys(jugadores).length
+      Object.values(jugadores).forEach(meses => {
+        if (meses.size >= 2) recontratados++
+      })
+      result[coach] = {
+        total: totalJugadores,
+        recontratados,
+        pct: totalJugadores > 0 ? Math.round((recontratados / totalJugadores) * 100) : 0
+      }
+    })
+    return result
+  })()
+
   // Check-in stats
   const checkInStats = (() => {
     const checkIns = filtered.filter(i => i.metodo_pago === 'Check-in')
@@ -325,7 +355,15 @@ export default function Dashboard({ usuario }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700 }}>Dashboard</h1>
-          <p style={{ color: 'var(--text2)', fontSize: 14, marginTop: 4 }}>Panel ejecutivo · Padel Camp</p>
+          <p style={{ color: 'var(--text2)', fontSize: 14, marginTop: 4 }}>
+            Panel ejecutivo · Padel Camp · 
+            <span style={{ color: 'var(--accent)', fontWeight: 600 }}>
+              {desde || hasta ? `${desde || '…'} → ${hasta || '…'}` : 'Año 2026 completo'}
+            </span>
+          </p>
+          <p style={{ color: 'var(--text2)', fontSize: 12, marginTop: 2 }}>
+            Programado = total facturado · Cobrado = pagos recibidos · Pendiente = por cobrar
+          </p>
         </div>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           <button className="btn btn-secondary btn-sm" onClick={() => setModalCorte(true)}>🧾 Corte de caja</button>
@@ -473,6 +511,41 @@ export default function Dashboard({ usuario }) {
               </div>
             ))}
           </div>
+        </div>
+      </div>
+
+      {/* Recontrataciones */}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div style={{ marginBottom: 14 }}>
+          <h3 style={{ fontSize: 14, fontWeight: 600 }}>Recontrataciones por coach</h3>
+          <p style={{ fontSize: 12, color: 'var(--text2)', marginTop: 3 }}>Jugadores que repiten con el mismo coach en 2 o más meses — mide fidelización y eficacia</p>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12 }}>
+          {Object.entries(recontrataciones).filter(([c]) => c !== 'Sin coach').map(([coach, data]) => (
+            <div key={coach} style={{ background: 'var(--bg3)', borderRadius: 10, padding: 14, border: '1px solid var(--border)' }}>
+              <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 10 }}>{coach}</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontFamily: 'var(--mono)', fontSize: 22, fontWeight: 700, color: 'var(--accent)' }}>{data.recontratados}</div>
+                  <div style={{ fontSize: 10, color: 'var(--text2)' }}>recontratados</div>
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontFamily: 'var(--mono)', fontSize: 22, fontWeight: 700, color: 'var(--text)' }}>{data.total}</div>
+                  <div style={{ fontSize: 10, color: 'var(--text2)' }}>jugadores total</div>
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontFamily: 'var(--mono)', fontSize: 22, fontWeight: 700, color: data.pct >= 70 ? 'var(--accent)' : data.pct >= 40 ? 'var(--warn)' : 'var(--danger)' }}>{data.pct}%</div>
+                  <div style={{ fontSize: 10, color: 'var(--text2)' }}>fidelización</div>
+                </div>
+              </div>
+              <div style={{ height: 6, borderRadius: 3, background: 'var(--bg2)' }}>
+                <div style={{ height: '100%', borderRadius: 3, width: `${data.pct}%`, background: data.pct >= 70 ? 'var(--accent)' : data.pct >= 40 ? 'var(--warn)' : 'var(--danger)', transition: 'width .3s' }} />
+              </div>
+              <div style={{ fontSize: 10, color: 'var(--text2)', marginTop: 4 }}>
+                {data.pct >= 70 ? '🟢 Excelente retención' : data.pct >= 40 ? '🟡 Retención media' : '🔴 Baja retención'}
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 
