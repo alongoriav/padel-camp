@@ -3,9 +3,9 @@ import { supabase } from '../supabase'
 
 const DIAS = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo']
 const HORAS = ['06:00','07:00','08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00','21:00']
-const MODALIDADES = ['Semanal','Clase única','Promo','Cortesía']
+const MODALIDADES = ['Semanal','Clase única','Promo']
 const TIPOS = ['Privada','Compartida']
-const METODOS = ['Efectivo','Tarjeta','Transferencia','Pendiente']
+const METODOS = ['Efectivo','Tarjeta','Transferencia','Check-in','Pendiente']
 const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
 
 function calcFechas(dia, fechaInicio) {
@@ -138,6 +138,7 @@ export default function Clases({ usuario }) {
 
   const togglePago = async (ins) => {
     const ahora = new Date().toISOString().split('T')[0]
+    const esPromo = ins.clases?.modalidad === 'Promo' || ins.clases?.modalidad === 'Cortesía'
     const update = ins.pagado 
       ? { pagado: false, fecha_pago: null }
       : { pagado: true, fecha_pago: ahora }
@@ -400,10 +401,18 @@ export default function Clases({ usuario }) {
                   <tr key={i.id}>
                     <td style={{ fontWeight: 500 }}>{i.jugadores?.nombre}</td>
                     <td><EditableMonto inscripcion={i} onUpdate={fetchAll} /></td>
-                    <td style={{ fontSize: 13 }}>{i.metodo_pago}</td>
+                    <td style={{ fontSize: 13 }}>
+                      {i.metodo_pago}
+                      {i.metodo_pago === 'Check-in' && (
+                        <div style={{ fontSize: 10, color: 'var(--warn)', marginTop: 2 }}>
+                          ${i.monto_checkin || 200} check-in
+                          {i.monto_complemento > 0 && ` + $${i.monto_complemento} ${i.metodo_complemento || ''}`}
+                        </div>
+                      )}
+                    </td>
                     <td>
-                      <button onClick={() => togglePago(i)} className={`badge ${i.pagado ? 'badge-green' : 'badge-red'}`} style={{ border: 'none', cursor: 'pointer' }}>
-                        {i.pagado ? '✅ Pagado' : '❌ Pendiente'}
+                      <button onClick={() => togglePago(i)} className={`badge ${i.pagado ? 'badge-green' : i.metodo_pago === 'Check-in' && !i.complemento_pagado ? 'badge-yellow' : 'badge-red'}`} style={{ border: 'none', cursor: 'pointer' }}>
+                        {i.pagado ? '✅ Pagado' : i.metodo_pago === 'Check-in' ? '⚡ Check-in' : '❌ Pendiente'}
                       </button>
                     </td>
                   </tr>
