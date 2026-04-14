@@ -24,7 +24,7 @@ function addDays(date, n) {
 function calcFechas(dia, fechaInicio) {
   if (!fechaInicio || !dia) return []
   const diaSemana = { Lunes:1, Martes:2, Miércoles:3, Jueves:4, Viernes:5, Sábado:6, Domingo:0 }[dia]
-  const inicio = new Date(fechaInicio + 'T12:00:00')
+  const inicio = new Date(fechaInicio + 'T00:00:00')
   const year = inicio.getFullYear(), month = inicio.getMonth()
   const fechas = []
   for (let d = 1; d <= 31; d++) {
