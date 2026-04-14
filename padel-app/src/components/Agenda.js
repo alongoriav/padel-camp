@@ -3,8 +3,8 @@ import { supabase } from '../supabase'
 
 const HORAS = ['06:00','07:00','08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00','21:00']
 const DIAS_SEMANA = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo']
-const METODOS = ['Efectivo','Tarjeta','Transferencia','Pendiente']
-const MODALIDADES = ['Semanal','Clase única','Promo','Cortesía']
+const METODOS = ['Efectivo','Tarjeta','Transferencia','Check-in','Pendiente']
+const MODALIDADES = ['Semanal','Clase única','Promo']
 const TIPOS = ['Privada','Compartida']
 const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
 
