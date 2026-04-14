@@ -173,8 +173,10 @@ export default function Dashboard({ usuario }) {
       const coach = coachesData.find(cd => cd.id === c.coachId)
       const clasesPagadasCount = c.clasesPagadas.size
       const { comision, base, comisionClases } = calcComisionCoach(coach, clasesPagadasCount, c.cobrado)
-      const pctComision = c.cobrado > 0 ? ((comisionClases / c.cobrado) * 100).toFixed(1) : '0'
-      const pctTotal = c.cobrado > 0 ? (((comision) / c.cobrado) * 100).toFixed(1) : '0'
+      // Peras con peras: todo sobre ingreso neto (sin IVA)
+      const ingresoNeto = c.cobrado / 1.16
+      const pctComision = ingresoNeto > 0 ? ((comisionClases / ingresoNeto) * 100).toFixed(1) : '0'
+      const pctTotal = ingresoNeto > 0 ? ((comision / ingresoNeto) * 100).toFixed(1) : '0'
       return { ...c, clases: c.clases.size, clasesPagadas: clasesPagadasCount, pendiente: c.programado - c.cobrado, comision, base, comisionClases, pctComision, pctTotal }
     }).sort((a, b) => b.programado - a.programado)
   })()
@@ -211,24 +213,54 @@ export default function Dashboard({ usuario }) {
     return Object.values(map).sort((a, b) => b.total - a.total).slice(0, 8)
   })()
 
-  // Recontrataciones
+  // Recontrataciones — compara mes actual vs anterior, o acumulado en rango
   const recontrataciones = (() => {
     const result = {}
-    const coachJugadorMes = {}
-    filtered.forEach(i => {
-      const coach = i.clases?.coaches?.nombre || 'Sin coach'
-      const jugador = i.jugador_id
-      const mes = MESES.indexOf(i.mes)
-      if (mes < 0) return
-      if (!coachJugadorMes[coach]) coachJugadorMes[coach] = {}
-      if (!coachJugadorMes[coach][jugador]) coachJugadorMes[coach][jugador] = new Set()
-      coachJugadorMes[coach][jugador].add(mes)
-    })
-    Object.entries(coachJugadorMes).forEach(([coach, jugadores]) => {
-      let recontratados = 0, totalJugadores = Object.keys(jugadores).length
-      Object.values(jugadores).forEach(meses => { if (meses.size >= 2) recontratados++ })
-      result[coach] = { total: totalJugadores, recontratados, pct: totalJugadores > 0 ? Math.round((recontratados / totalJugadores) * 100) : 0 }
-    })
+    if (modoFiltro === 'mes') {
+      // Comparar jugadores del mes seleccionado vs mes anterior
+      const mesIdx = MESES.indexOf(mesSeleccionado)
+      const mesAnterior = mesIdx > 0 ? MESES[mesIdx - 1] : null
+      const jugadoresMesActual = {}
+      const jugadoresMesAnterior = {}
+      inscripciones.forEach(i => {
+        const coach = i.clases?.coaches?.nombre || 'Sin coach'
+        if (i.mes === mesSeleccionado) {
+          if (!jugadoresMesActual[coach]) jugadoresMesActual[coach] = new Set()
+          jugadoresMesActual[coach].add(i.jugador_id)
+        }
+        if (mesAnterior && i.mes === mesAnterior) {
+          if (!jugadoresMesAnterior[coach]) jugadoresMesAnterior[coach] = new Set()
+          jugadoresMesAnterior[coach].add(i.jugador_id)
+        }
+      })
+      Object.keys(jugadoresMesActual).forEach(coach => {
+        const actual = jugadoresMesActual[coach] || new Set()
+        const anterior = jugadoresMesAnterior[coach] || new Set()
+        const recontratados = [...actual].filter(j => anterior.has(j)).length
+        result[coach] = {
+          total: actual.size,
+          recontratados,
+          pct: actual.size > 0 ? Math.round((recontratados / actual.size) * 100) : 0,
+          label: mesAnterior ? `vs ${mesAnterior}` : 'sin mes anterior'
+        }
+      })
+    } else {
+      // Acumulado: jugadores que aparecen en 2+ meses dentro del rango
+      const coachJugadorMes = {}
+      filtered.forEach(i => {
+        const coach = i.clases?.coaches?.nombre || 'Sin coach'
+        const mes = MESES.indexOf(i.mes)
+        if (mes < 0) return
+        if (!coachJugadorMes[coach]) coachJugadorMes[coach] = {}
+        if (!coachJugadorMes[coach][i.jugador_id]) coachJugadorMes[coach][i.jugador_id] = new Set()
+        coachJugadorMes[coach][i.jugador_id].add(mes)
+      })
+      Object.entries(coachJugadorMes).forEach(([coach, jugadores]) => {
+        let recontratados = 0, totalJugadores = Object.keys(jugadores).length
+        Object.values(jugadores).forEach(meses => { if (meses.size >= 2) recontratados++ })
+        result[coach] = { total: totalJugadores, recontratados, pct: totalJugadores > 0 ? Math.round((recontratados / totalJugadores) * 100) : 0, label: 'acumulado' }
+      })
+    }
     return result
   })()
 
@@ -413,12 +445,18 @@ export default function Dashboard({ usuario }) {
               {/* % comisión */}
               <div style={{ background: 'var(--bg2)', borderRadius: 8, padding: '8px 10px', marginBottom: 8 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                  <span style={{ fontSize: 11, color: 'var(--text2)' }}>% comisión s/ cobrado</span>
+                  <span style={{ fontSize: 11, color: 'var(--text2)' }}>
+                    {coachesData.find(cd => cd.id === c.coachId)?.esquema_comision === 'Bono' ? 'Extra por clases s/ cobrado' : '% comisión s/ cobrado'}
+                  </span>
                   <span style={{ fontFamily: 'var(--mono)', fontSize: 12, fontWeight: 700, color: '#f472b6' }}>{c.pctComision}%</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ fontSize: 11, color: 'var(--text2)' }}>% total (com. + sueldo)</span>
-                  <span style={{ fontFamily: 'var(--mono)', fontSize: 12, fontWeight: 700, color: '#facc15' }}>{c.pctTotal}%</span>
+                  <span style={{ fontSize: 11, color: 'var(--text2)' }}>% total pagado coach s/ cobrado</span>
+                  <span style={{ fontFamily: 'var(--mono)', fontSize: 12, fontWeight: 700, color: c.pctTotal > 80 ? 'var(--danger)' : c.pctTotal > 60 ? 'var(--warn)' : 'var(--accent)' }}>{c.pctTotal}%</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
+                  <span style={{ fontSize: 11, color: 'var(--text2)' }}>Total a pagar coach</span>
+                  <span style={{ fontFamily: 'var(--mono)', fontSize: 12, fontWeight: 700, color: 'var(--text)' }}>{fmt(c.comision)}</span>
                 </div>
               </div>
               <div style={{ height: 6, borderRadius: 3, background: 'var(--bg2)', overflow: 'hidden' }}>
@@ -500,8 +538,9 @@ export default function Dashboard({ usuario }) {
               <div style={{ height: 6, borderRadius: 3, background: 'var(--bg2)' }}>
                 <div style={{ height: '100%', borderRadius: 3, width: `${data.pct}%`, background: data.pct >= 70 ? 'var(--accent)' : data.pct >= 40 ? 'var(--warn)' : 'var(--danger)', transition: 'width .3s' }} />
               </div>
-              <div style={{ fontSize: 10, color: 'var(--text2)', marginTop: 4 }}>
-                {data.pct >= 70 ? '🟢 Excelente retención' : data.pct >= 40 ? '🟡 Retención media' : '🔴 Baja retención'}
+              <div style={{ fontSize: 10, color: 'var(--text2)', marginTop: 4, display: 'flex', justifyContent: 'space-between' }}>
+                <span>{data.pct >= 70 ? '🟢 Excelente' : data.pct >= 40 ? '🟡 Media' : '🔴 Baja'}</span>
+                <span style={{ color: 'var(--text2)', fontStyle: 'italic' }}>{data.label}</span>
               </div>
             </div>
           ))}
