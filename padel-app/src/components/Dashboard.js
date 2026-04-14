@@ -106,7 +106,7 @@ export default function Dashboard({ usuario }) {
 
   const fetchData = async () => {
     const [{ data: ins }, { data: cl }] = await Promise.all([
-      supabase.from('inscripciones').select('*, jugadores(nombre), clases(coach_id, tipo, modalidad, dia, hora, coaches(nombre))'),
+      supabase.from('inscripciones').select('*, jugadores(nombre), clases(coach_id, tipo, modalidad, dia, hora, fecha_inicio, coaches(nombre))'),
       supabase.from('clases').select('*, coaches(nombre)'),
     ])
     setInscripciones(ins || [])
