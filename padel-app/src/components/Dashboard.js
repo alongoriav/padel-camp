@@ -69,16 +69,17 @@ function MultiBar({ data, keys, colors, height = 100 }) {
   if (!data?.length) return null
   const max = Math.max(...data.flatMap(d => keys.map(k => d[k] || 0))) || 1
   return (
-    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height: height + 30 }}>
+    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: height + 30 }}>
       {data.map((d, i) => (
         <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
-          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, width: '100%' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, width: '100%', height: height }}>
             {keys.map((k, j) => (
               <div key={k} style={{
-                flex: 1, borderRadius: '3px 3px 0 0',
+                flex: 1, borderRadius: '4px 4px 0 0',
                 background: colors[j],
-                height: `${Math.max((d[k] / max) * height, 2)}px`,
-                transition: 'height .3s',
+                height: `${Math.max((d[k] / max) * height, 3)}px`,
+                transition: 'height .4s ease',
+                alignSelf: 'flex-end',
               }} />
             ))}
           </div>
