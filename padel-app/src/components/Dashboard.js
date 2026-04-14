@@ -186,7 +186,7 @@ export default function Dashboard({ usuario }) {
       const { comision, base, comisionClases } = calcComisionCoach(coach, clasesPagadasCount, c.cobrado)
       // Un solo % : total pagado al coach / total cobrado por sus clases
       const pctTotal = c.cobrado > 0 ? ((comision / c.cobrado) * 100).toFixed(1) : '0'
-      return { ...c, clases: c.clases.size, clasesPagadas: clasesPagadasCount, pendiente: c.programado - c.cobrado, comision, base, comisionClases, pctComision, pctTotal }
+      return { ...c, clases: c.clases.size, clasesPagadas: clasesPagadasCount, pendiente: c.programado - c.cobrado, comision, base, comisionClases, pctTotal }
     }).sort((a, b) => b.programado - a.programado)
   })()
 
