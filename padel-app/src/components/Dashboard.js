@@ -102,7 +102,7 @@ export default function Dashboard({ usuario }) {
 
   const fetchData = async () => {
     const [{ data: ins }, { data: cs }] = await Promise.all([
-      supabase.from('inscripciones').select('*, jugadores(nombre), clases(coach_id, tipo, modalidad, dia, hora, fecha_inicio, coaches(nombre))'),
+      supabase.from('inscripciones').select('*, jugadores(nombre), clases(coach_id, tipo, modalidad, dia, hora, fecha_inicio, clases_en_rango, coaches(nombre))'),
       supabase.from('coaches').select('*').eq('activo', true),
     ])
     setInscripciones(ins || [])
@@ -171,10 +171,20 @@ export default function Dashboard({ usuario }) {
     })
     return Object.values(map).map(c => {
       const coach = coachesData.find(cd => cd.id === c.coachId)
-      const clasesPagadasCount = c.clasesPagadas.size
+      // Sum real hours (clases_en_rango) for paid unique classes
+      const clasesPagadasCount = (() => {
+        const seen = new Set()
+        let total = 0
+        filtered.filter(i => i.pagado && i.clases?.coach_id === c.coachId).forEach(i => {
+          if (!seen.has(i.clase_id)) {
+            seen.add(i.clase_id)
+            total += (i.clases?.clases_en_rango || 1)
+          }
+        })
+        return total
+      })()
       const { comision, base, comisionClases } = calcComisionCoach(coach, clasesPagadasCount, c.cobrado)
       // Un solo % : total pagado al coach / total cobrado por sus clases
-      const pctComision = '0'
       const pctTotal = c.cobrado > 0 ? ((comision / c.cobrado) * 100).toFixed(1) : '0'
       return { ...c, clases: c.clases.size, clasesPagadas: clasesPagadasCount, pendiente: c.programado - c.cobrado, comision, base, comisionClases, pctComision, pctTotal }
     }).sort((a, b) => b.programado - a.programado)
