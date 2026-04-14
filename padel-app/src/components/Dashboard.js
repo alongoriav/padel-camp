@@ -405,7 +405,7 @@ export default function Dashboard({ usuario }) {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             <h3 style={{ fontSize: 14, fontWeight: 600 }}>Evolución mensual</h3>
             <div style={{ display: 'flex', gap: 12, fontSize: 11 }}>
-              {[{ color: '#00e5a0', label: 'Cobrado' }, { color: '#1e2535', label: 'Pendiente' }].map(l => (
+              {[{ color: '#00e5a0', label: 'Cobrado' }, { color: '#ffa502', label: 'Pendiente' }].map(l => (
                 <span key={l.label} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                   <span style={{ width: 8, height: 8, borderRadius: 2, background: l.color, display: 'inline-block' }} />
                   <span style={{ color: 'var(--text2)' }}>{l.label}</span>
@@ -413,7 +413,7 @@ export default function Dashboard({ usuario }) {
               ))}
             </div>
           </div>
-          <MultiBar data={evolucionMensual} keys={['cobrado','pendiente']} colors={['#00e5a0','#1e2535']} height={110} />
+          <MultiBar data={evolucionMensual} keys={['cobrado','pendiente']} colors={['#00e5a0','#ffa502']} height={110} />
         </div>
 
         <div className="card">
