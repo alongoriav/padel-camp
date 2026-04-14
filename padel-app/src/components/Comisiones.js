@@ -84,9 +84,15 @@ export default function Comisiones() {
   const calcResumen = () => {
     const res = coaches.map(coach => {
       const insMes = filtrarIns(inscripciones).filter(i => i.clases?.coach_id === coach.id)
-      const clasesUnicas = new Set(insMes.map(i => i.clase_id)).size
+      // Solo inscripciones pagadas (o Promo/Cortesía que siempre cuentan)
+      const insParaComision = insMes.filter(i => {
+        const modalidad = i.clases?.modalidad
+        if (modalidad === 'Promo' || modalidad === 'Cortesía') return true
+        return i.pagado
+      })
+      const clasesUnicas = new Set(insParaComision.map(i => i.clase_id)).size
       let ingresoTeorico = 0
-      insMes.forEach(i => {
+      insParaComision.forEach(i => {
         const modalidad = i.clases?.modalidad
         const p = insMes.filter(x => x.clase_id === i.clase_id).length
         if (modalidad === 'Promo' || modalidad === 'Cortesía') {
@@ -183,11 +189,16 @@ export default function Comisiones() {
         const baseProporcional = (r.coach.sueldo_base || 0) / diasDelMes * diasRango
 
         // Recalcular ingreso teórico para este coach en el periodo
-        const insCoachPDF = filtrarIns(inscripciones).filter(i => i.clases?.coach_id === r.coach.id)
+        const insCoachAll = filtrarIns(inscripciones).filter(i => i.clases?.coach_id === r.coach.id)
+        const insCoachPDF = insCoachAll.filter(i => {
+          const modalidad = i.clases?.modalidad
+          if (modalidad === 'Promo' || modalidad === 'Cortesía') return true
+          return i.pagado
+        })
         let ingresoTeoricoPDF = 0
         insCoachPDF.forEach(i => {
           const modalidad = i.clases?.modalidad
-          const p = insCoachPDF.filter(x => x.clase_id === i.clase_id).length
+          const p = insCoachAll.filter(x => x.clase_id === i.clase_id).length
           if (modalidad === 'Promo' || modalidad === 'Cortesía') {
             ingresoTeoricoPDF += calcValorTeorico(modalidad, p)
           } else {
@@ -449,7 +460,7 @@ export default function Comisiones() {
       )}
 
       <div style={{ marginTop: 16, padding: '12px 16px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 13, color: 'var(--text2)' }}>
-        💡 Ingreso teórico de Promo/Cortesía se calcula según precio por participantes. El coach siempre recibe su comisión completa.
+        💡 Las comisiones se calculan únicamente sobre clases pagadas. Promo/Cortesía siempre cuentan. Check-in cuenta cuando el complemento está pagado.
       </div>
 
       {/* Modal exportar */}
