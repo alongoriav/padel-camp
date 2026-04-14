@@ -321,11 +321,20 @@ export default function Clases({ usuario }) {
               </div>
 
               <div className="form-group">
-                <label className="form-label" style={{ marginBottom: 8, display: 'block' }}>
-                  Jugadores {jugadoresClase.length > 0 && <span style={{ color: 'var(--accent)' }}>({jugadoresClase.length})</span>}
-                </label>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <label className="form-label" style={{ margin: 0 }}>
+                    Jugadores {jugadoresClase.length > 0 && <span style={{ color: 'var(--accent)' }}>({jugadoresClase.length})</span>}
+                  </label>
+                  <button type="button" onClick={() => setBusqueda(' ')} style={{
+                    display: 'flex', alignItems: 'center', gap: 5,
+                    background: 'var(--accent)', border: 'none', borderRadius: 8,
+                    padding: '5px 12px', cursor: 'pointer', fontSize: 13, fontWeight: 700, color: '#000'
+                  }}>+ Agregar jugador</button>
+                </div>
                 <div style={{ position: 'relative', marginBottom: 10 }}>
-                  <input className="form-input" placeholder="Buscar y agregar jugador..." value={busqueda} onChange={e => setBusqueda(e.target.value)} />
+                  <input className="form-input" placeholder="Buscar jugador..." value={busqueda} 
+                    onChange={e => setBusqueda(e.target.value)}
+                    onBlur={() => setTimeout(() => setBusqueda(''), 200)} />
                   {busqueda && jugadoresFiltrados.length > 0 && (
                     <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10, background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 8, maxHeight: 180, overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,.4)' }}>
                       {jugadoresFiltrados.slice(0, 6).map(j => (
@@ -423,7 +432,9 @@ export default function Clases({ usuario }) {
             <div style={{ borderTop: '1px solid var(--border)', paddingTop: 14 }}>
               <label className="form-label" style={{ marginBottom: 8, display: 'block' }}>Agregar jugador al grupo</label>
               <div style={{ position: 'relative' }}>
-                <input className="form-input" placeholder="Buscar jugador..." value={busquedaDetalle} onChange={e => setBusquedaDetalle(e.target.value)} />
+                <input className="form-input" placeholder="Buscar jugador..." value={busquedaDetalle} 
+                  onChange={e => setBusquedaDetalle(e.target.value)}
+                  onBlur={() => setTimeout(() => setBusquedaDetalle(''), 200)} />
                 {busquedaDetalle && jugadoresDisponiblesDetalle.length > 0 && (
                   <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10, background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 8, maxHeight: 180, overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,.4)' }}>
                     {jugadoresDisponiblesDetalle.slice(0, 6).map(j => (
