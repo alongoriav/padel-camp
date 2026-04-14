@@ -175,7 +175,13 @@ export default function Dashboard({ usuario }) {
       const { comision, base, comisionClases } = calcComisionCoach(coach, clasesPagadasCount, c.cobrado)
       // Peras con peras: todo sobre ingreso neto (sin IVA)
       const ingresoNeto = c.cobrado / 1.16
-      const pctComision = ingresoNeto > 0 ? ((comisionClases / ingresoNeto) * 100).toFixed(1) : '0'
+      // Para Bono: la comisión ES el sueldo base, no hay % variable separado
+      const esqCoach = coach?.esquema_comision
+      const pctComision = ingresoNeto > 0
+        ? esqCoach === 'Bono'
+          ? ((base / ingresoNeto) * 100).toFixed(1)   // base proporcional
+          : ((comisionClases / ingresoNeto) * 100).toFixed(1)  // % variable
+        : '0'
       const pctTotal = ingresoNeto > 0 ? ((comision / ingresoNeto) * 100).toFixed(1) : '0'
       return { ...c, clases: c.clases.size, clasesPagadas: clasesPagadasCount, pendiente: c.programado - c.cobrado, comision, base, comisionClases, pctComision, pctTotal }
     }).sort((a, b) => b.programado - a.programado)
@@ -446,7 +452,7 @@ export default function Dashboard({ usuario }) {
               <div style={{ background: 'var(--bg2)', borderRadius: 8, padding: '8px 10px', marginBottom: 8 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                   <span style={{ fontSize: 11, color: 'var(--text2)' }}>
-                    {coachesData.find(cd => cd.id === c.coachId)?.esquema_comision === 'Bono' ? 'Extra por clases s/ cobrado' : '% comisión s/ cobrado'}
+                    {coachesData.find(cd => cd.id === c.coachId)?.esquema_comision === 'Bono' ? '% sueldo base s/ ingreso neto' : '% comisión variable s/ neto'}
                   </span>
                   <span style={{ fontFamily: 'var(--mono)', fontSize: 12, fontWeight: 700, color: '#f472b6' }}>{c.pctComision}%</span>
                 </div>
