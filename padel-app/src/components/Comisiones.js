@@ -99,7 +99,14 @@ export default function Comisiones() {
         if (modalidad === 'Promo' || modalidad === 'Cortesía') return true
         return i.pagado
       })
-      const clasesUnicas = new Set(insParaComision.map(i => i.clase_id)).size
+      // Sumar horas reales (clases_en_rango) por clase única
+      const clasesUnicasSet = new Set(insParaComision.map(i => i.clase_id))
+      const clasesUnicas = insParaComision
+        .filter(i => { const seen = new Set(); if (seen.has(i.clase_id)) return false; seen.add(i.clase_id); return true; })
+        .reduce((acc, i) => {
+          if (!acc.ids.has(i.clase_id)) { acc.ids.add(i.clase_id); acc.total += (i.clases?.clases_en_rango || 1) }
+          return acc
+        }, { ids: new Set(), total: 0 }).total
       let ingresoTeorico = 0
       insParaComision.forEach(i => {
         const modalidad = i.clases?.modalidad
