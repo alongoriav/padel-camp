@@ -68,7 +68,7 @@ export default function Comisiones() {
   const fetchData = async () => {
     const [{ data: cs }, { data: ins }, { data: cl }] = await Promise.all([
       supabase.from('coaches').select('*').order('nombre'),
-      supabase.from('inscripciones').select('*, jugadores(nombre), clases(coach_id, tipo, modalidad, fecha_inicio, dia, hora)'),
+      supabase.from('inscripciones').select('*, jugadores(nombre), clases(coach_id, tipo, modalidad, fecha_inicio, dia, hora, clases_en_rango)'),
       supabase.from('clases').select('*'),
     ])
     setCoaches(cs || [])
@@ -100,13 +100,18 @@ export default function Comisiones() {
         return i.pagado
       })
       // Sumar horas reales (clases_en_rango) por clase única
-      const clasesUnicasSet = new Set(insParaComision.map(i => i.clase_id))
-      const clasesUnicas = insParaComision
-        .filter(i => { const seen = new Set(); if (seen.has(i.clase_id)) return false; seen.add(i.clase_id); return true; })
-        .reduce((acc, i) => {
-          if (!acc.ids.has(i.clase_id)) { acc.ids.add(i.clase_id); acc.total += (i.clases?.clases_en_rango || 1) }
-          return acc
-        }, { ids: new Set(), total: 0 }).total
+      // Sumar horas reales (clases_en_rango) por clase única pagada
+      const clasesUnicas = (() => {
+        const seen = new Set()
+        let total = 0
+        insParaComision.forEach(i => {
+          if (!seen.has(i.clase_id)) {
+            seen.add(i.clase_id)
+            total += (i.clases?.clases_en_rango || 1)
+          }
+        })
+        return total
+      })()
       let ingresoTeorico = 0
       insParaComision.forEach(i => {
         const modalidad = i.clases?.modalidad
