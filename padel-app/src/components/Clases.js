@@ -166,9 +166,7 @@ export default function Clases({ usuario }) {
     }).select().single()
     if (!claseData) { showToast('Error al guardar'); return }
     await supabase.from('inscripciones').insert(jugadoresClase.map(j => {
-      const montoFinal = j.fecha_entrada && form.fecha_inicio
-        ? calcMontoProporcional(montoPorJugador, j.fecha_entrada, form.fecha_inicio, numClases)
-        : montoPorJugador
+      const montoFinal = j._montoProporcional != null ? j._montoProporcional : montoPorJugador
       return {
         clase_id: claseData.id, jugador_id: j.jugador_id,
         metodo_pago: j.metodo, pagado: j.pagado,
@@ -434,13 +432,40 @@ export default function Clases({ usuario }) {
                         onChange={e => setJugadoresClase(prev => prev.map(x => x.jugador_id === j.jugador_id ? { ...x, pagado: e.target.checked } : x))} />
                       Pagado
                     </label>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                      <input type="date" value={j.fecha_entrada || ''}
-                        onChange={e => setJugadoresClase(prev => prev.map(x => x.jugador_id === j.jugador_id ? { ...x, fecha_entrada: e.target.value } : x))}
-                        title="Fecha de entrada (dejar vacío = desde inicio)"
-                        style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 6, padding: '3px 6px', fontSize: 11, color: 'var(--text2)', maxWidth: 130 }} />
-                      <span style={{ fontSize: 9, color: 'var(--text2)', textAlign: 'center' }}>Fecha entrada</span>
-                    </div>
+                    {form.tipo === 'Compartida' && (
+                      <div style={{ position: 'relative' }}>
+                        <button onClick={() => setJugadoresClase(prev => prev.map(x => x.jugador_id === j.jugador_id ? { ...x, _showCal: !x._showCal } : x))}
+                          style={{ background: j.fecha_entrada ? 'rgba(255,59,48,.2)' : 'rgba(255,59,48,.1)', border: '1px solid rgba(255,59,48,.4)', borderRadius: 8, padding: '5px 8px', cursor: 'pointer', fontSize: 11, color: '#ff3b30', whiteSpace: 'nowrap', fontWeight: 600 }}>
+                          📅 {j.fecha_entrada ? j.fecha_entrada : 'Fecha entrada'}
+                        </button>
+                        {j._showCal && (
+                          <div style={{ position: 'absolute', right: 0, top: '110%', zIndex: 50, background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 12, padding: 14, boxShadow: '0 8px 32px rgba(0,0,0,.5)', minWidth: 260 }}>
+                            <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 8 }}>¿Desde cuándo entra este jugador?</div>
+                            <input type="date" value={j.fecha_entrada || ''}
+                              onChange={e => {
+                                const fecha = e.target.value
+                                const montoBase = calcMonto(form.modalidad, jugadoresClase.length, numClases)
+                                const montoP = fecha && form.fecha_inicio ? calcMontoProporcional(montoBase, fecha, form.fecha_inicio, numClases) : montoBase
+                                setJugadoresClase(prev => prev.map(x => x.jugador_id === j.jugador_id ? { ...x, fecha_entrada: fecha, _showCal: false, _montoProporcional: montoP } : x))
+                              }}
+                              style={{ width: '100%', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px', fontSize: 14, color: 'var(--text)' }} />
+                            {j.fecha_entrada && form.fecha_inicio && (
+                              <div style={{ marginTop: 10, background: 'rgba(255,165,2,.1)', border: '1px solid rgba(255,165,2,.3)', borderRadius: 8, padding: '8px 12px' }}>
+                                <div style={{ fontSize: 11, color: 'var(--warn)', marginBottom: 2 }}>Monto proporcional:</div>
+                                <div style={{ fontFamily: 'var(--mono)', fontSize: 18, fontWeight: 700, color: 'var(--warn)' }}>
+                                  ${calcMontoProporcional(calcMonto(form.modalidad, jugadoresClase.length, numClases), j.fecha_entrada, form.fecha_inicio, numClases).toLocaleString('es-MX')}
+                                </div>
+                                <div style={{ fontSize: 10, color: 'var(--text2)', marginTop: 2 }}>vs ${calcMonto(form.modalidad, jugadoresClase.length, numClases).toLocaleString('es-MX')} base</div>
+                              </div>
+                            )}
+                            <button onClick={() => setJugadoresClase(prev => prev.map(x => x.jugador_id === j.jugador_id ? { ...x, fecha_entrada: '', _showCal: false, _montoProporcional: null } : x))}
+                              style={{ marginTop: 8, width: '100%', background: 'transparent', border: '1px solid var(--border)', borderRadius: 8, padding: '6px', fontSize: 12, color: 'var(--text2)', cursor: 'pointer' }}>
+                              Quitar fecha
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
                     <button onClick={() => setJugadoresClase(prev => prev.filter(x => x.jugador_id !== j.jugador_id))}
                       style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer', fontSize: 16 }}>✕</button>
                   </div>
@@ -449,23 +474,22 @@ export default function Clases({ usuario }) {
 
               {jugadoresClase.length > 0 && (
                 <div style={{ background: 'rgba(0,229,160,.08)', border: '1px solid rgba(0,229,160,.2)', borderRadius: 8, padding: '12px 16px' }}>
-                  <div style={{ fontFamily: 'var(--mono)', fontSize: 16, fontWeight: 700, color: 'var(--accent)', marginBottom: 6 }}>
-                    ${montoPorJugador.toLocaleString('es-MX')} base · {numClases} clase{numClases !== 1 ? 's' : ''}
-                  </div>
                   {jugadoresClase.map(j => {
-                    const monto = j.fecha_entrada && form.fecha_inicio
-                      ? calcMontoProporcional(montoPorJugador, j.fecha_entrada, form.fecha_inicio, numClases)
-                      : montoPorJugador
-                    const esProporcional = j.fecha_entrada && form.fecha_inicio && monto !== montoPorJugador
+                    const monto = j._montoProporcional != null ? j._montoProporcional : montoPorJugador
+                    const esProporcional = j._montoProporcional != null && j._montoProporcional !== montoPorJugador
                     return (
                       <div key={j.jugador_id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginTop: 3 }}>
-                        <span style={{ color: 'var(--text2)' }}>{j.nombre}</span>
-                        <span style={{ fontFamily: 'var(--mono)', color: esProporcional ? 'var(--warn)' : 'var(--accent)', fontWeight: 600 }}>
-                          ${monto.toLocaleString('es-MX')} {esProporcional && `(desde ${j.fecha_entrada})`}
+                        <span style={{ color: 'var(--text2)' }}>{j.nombre} {j.fecha_entrada && <span style={{ color: 'var(--danger)', fontSize: 11 }}>desde {j.fecha_entrada}</span>}</span>
+                        <span style={{ fontFamily: 'var(--mono)', color: esProporcional ? 'var(--warn)' : 'var(--accent)', fontWeight: 700, fontSize: 15 }}>
+                          ${monto.toLocaleString('es-MX')}
                         </span>
                       </div>
                     )
                   })}
+                  <div style={{ borderTop: '1px solid rgba(0,229,160,.2)', marginTop: 8, paddingTop: 8, display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text2)' }}>
+                    <span>Precio base: ${montoPorJugador.toLocaleString('es-MX')}/jugador · {numClases} clase{numClases !== 1 ? 's' : ''}</span>
+                    <span style={{ color: 'var(--accent)', fontWeight: 600 }}>Total: ${jugadoresClase.reduce((a, j) => a + (j._montoProporcional != null ? j._montoProporcional : montoPorJugador), 0).toLocaleString('es-MX')}</span>
+                  </div>
                 </div>
               )}
 
