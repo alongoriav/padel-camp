@@ -100,7 +100,13 @@ export default function Agenda({ usuario }) {
     return clases.filter(c => {
       const horaClase = c.hora?.slice(0,5)
       if (horaClase !== hora) return false
-      if (c.modalidad === 'Semanal' || c.modalidad === 'Promo' || c.modalidad === 'Cortesía') return c.dia === dia
+      if (c.modalidad === 'Semanal') return c.dia === dia
+      if (c.modalidad === 'Promo' || c.modalidad === 'Cortesía') {
+        // Si tiene día asignado usar día, sino usar fecha_inicio
+        if (c.dia) return c.dia === dia
+        const fechaDia = diasSemana.find(d => d.nombre === dia)?.fecha
+        return c.fecha_inicio === fechaDia?.toISOString().split('T')[0]
+      }
       if (c.modalidad === 'Clase única') {
         const fechaDia = diasSemana.find(d => d.nombre === dia)?.fecha
         return c.fecha_inicio === fechaDia?.toISOString().split('T')[0]
@@ -184,10 +190,11 @@ export default function Agenda({ usuario }) {
     if (!formNueva.coach_id || jugadoresClase.length === 0 || !formNueva.fecha_inicio) return
     const { data: claseData } = await supabase.from('clases').insert({
       coach_id: formNueva.coach_id, tipo: formNueva.tipo, modalidad: formNueva.modalidad,
-      dia: formNueva.modalidad === 'Semanal' ? formNueva.dia : null,
+      dia: (formNueva.modalidad === 'Semanal' || formNueva.modalidad === 'Promo') && formNueva.dia ? formNueva.dia : null,
       hora: formNueva.hora + ':00',
       fecha_inicio: formNueva.fecha_inicio,
       fecha_fin: formNueva.modalidad === 'Semanal' ? formNueva.fecha_fin : formNueva.fecha_inicio,
+      // For Promo with dia, keep the dia so it shows on agenda weekly view
       activo: true,
     }).select().single()
     if (!claseData) { showToast('Error al guardar'); return }
