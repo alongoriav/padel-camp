@@ -35,6 +35,21 @@ function calcMonto(modalidad, participantes, clases) {
   return precios[p]?.['Clase única'] || 0
 }
 
+function calcMontoProporcional(montoBase, fechaEntrada, fechaInicio, clasesTotal) {
+  if (!fechaEntrada || !fechaInicio || fechaEntrada <= fechaInicio) return montoBase
+  // Count remaining classes from fechaEntrada
+  // We estimate: clases restantes = clasesTotal * (días restantes / días totales del mes)
+  const inicio = new Date(fechaInicio + 'T00:00:00')
+  const entrada = new Date(fechaEntrada + 'T00:00:00')
+  const fin = new Date(inicio)
+  fin.setMonth(fin.getMonth() + 1)
+  fin.setDate(0) // last day of month
+  const diasTotales = Math.round((fin - inicio) / (1000 * 60 * 60 * 24)) + 1
+  const diasRestantes = Math.round((fin - entrada) / (1000 * 60 * 60 * 24)) + 1
+  const proporcion = Math.min(1, Math.max(0, diasRestantes / diasTotales))
+  return Math.round(montoBase * proporcion)
+}
+
 function EditableMonto({ inscripcion, onUpdate }) {
   const [editing, setEditing] = useState(false)
   const [valor, setValor] = useState(inscripcion.monto_cobrado || 0)
@@ -82,6 +97,7 @@ export default function Clases({ usuario }) {
   const [filterDesde, setFilterDesde] = useState('')
   const [filterHasta, setFilterHasta] = useState('')
   const [busquedaDetalle, setBusquedaDetalle] = useState('')
+  const [fechaEntradaDetalle, setFechaEntradaDetalle] = useState('')
   const [modalNuevoJugador, setModalNuevoJugador] = useState(false)
   const [nuevoJugadorNombre, setNuevoJugadorNombre] = useState('')
   const [nuevoJugadorDesde, setNuevoJugadorDesde] = useState('clase') // 'clase' or 'detalle'
@@ -102,7 +118,7 @@ export default function Clases({ usuario }) {
       supabase.from('coaches').select('*').eq('activo', true).order('nombre'),
       supabase.from('jugadores').select('*').eq('activo', true).order('nombre'),
       supabase.from('clases').select('*, coaches(nombre)').order('fecha_inicio', { ascending: false }),
-      supabase.from('inscripciones').select('*, jugadores(nombre)'),
+      supabase.from('inscripciones').select('*, jugadores(nombre), clases(fecha_inicio, fecha_fin, clases_en_rango, modalidad)'),
     ])
     setCoaches(cs || []); setJugadores(js || [])
     setClases(cl || []); setInscripciones(ins || [])
@@ -116,8 +132,9 @@ export default function Clases({ usuario }) {
   const participantes = jugadoresClase.length || 1
   const montoPorJugador = calcMonto(form.modalidad, participantes, numClases)
 
+  const busquedaTrimmed = busqueda.trim()
   const jugadoresFiltrados = jugadores.filter(j =>
-    j.nombre.toLowerCase().includes(busqueda.toLowerCase()) &&
+    (busquedaTrimmed === '' || j.nombre.toLowerCase().includes(busquedaTrimmed.toLowerCase())) &&
     !jugadoresClase.find(jc => jc.jugador_id === j.id)
   )
 
@@ -130,7 +147,7 @@ export default function Clases({ usuario }) {
     const { data: js } = await supabase.from('jugadores').select('*').eq('activo', true).order('nombre')
     setJugadores(js || [])
     if (nuevoJugadorDesde === 'clase') {
-      setJugadoresClase(prev => [...prev, { jugador_id: data.id, nombre: data.nombre, metodo: 'Efectivo', pagado: false }])
+      setJugadoresClase(prev => [...prev, { jugador_id: data.id, nombre: data.nombre, metodo: 'Efectivo', pagado: false, fecha_entrada: '' }])
     } else {
       await agregarJugadorDetalle(data)
     }
@@ -148,11 +165,17 @@ export default function Clases({ usuario }) {
       fecha_fin: form.modalidad === 'Semanal' ? form.fecha_fin : form.fecha_inicio, activo: true,
     }).select().single()
     if (!claseData) { showToast('Error al guardar'); return }
-    await supabase.from('inscripciones').insert(jugadoresClase.map(j => ({
-      clase_id: claseData.id, jugador_id: j.jugador_id,
-      metodo_pago: j.metodo, pagado: j.pagado,
-      monto_cobrado: montoPorJugador, mes: form.mes, anio: form.anio,
-    })))
+    await supabase.from('inscripciones').insert(jugadoresClase.map(j => {
+      const montoFinal = j.fecha_entrada && form.fecha_inicio
+        ? calcMontoProporcional(montoPorJugador, j.fecha_entrada, form.fecha_inicio, numClases)
+        : montoPorJugador
+      return {
+        clase_id: claseData.id, jugador_id: j.jugador_id,
+        metodo_pago: j.metodo, pagado: j.pagado,
+        monto_cobrado: montoFinal, mes: form.mes, anio: form.anio,
+        fecha_entrada: j.fecha_entrada || null,
+      }
+    }))
     showToast('Clase registrada ✓')
     setModal(false); setJugadoresClase([]); setForm(emptyForm); fetchAll()
   }
@@ -182,12 +205,28 @@ export default function Clases({ usuario }) {
 
   const agregarJugadorDetalle = async (j) => {
     const insDetalle = inscripciones.filter(i => i.clase_id === detalle.id)
-    const monto = calcMonto(detalle.modalidad, insDetalle.length + 1, 1)
+    const totalParticipantes = insDetalle.length + 1
+    const montoBase = calcMonto(detalle.modalidad, totalParticipantes, detalle.clases_en_rango || 1)
+    // Recalculate existing players with new participant count
+    const montoNuevo = calcMonto(detalle.modalidad, totalParticipantes, detalle.clases_en_rango || 1)
+    const montoAnterior = calcMonto(detalle.modalidad, insDetalle.length, detalle.clases_en_rango || 1)
+    const saldoFavor = montoAnterior - montoNuevo
+    // Calculate proportional for new player
+    const montoFinal = fechaEntradaDetalle && detalle.fecha_inicio
+      ? calcMontoProporcional(montoNuevo, fechaEntradaDetalle, detalle.fecha_inicio, detalle.clases_en_rango || 1)
+      : montoNuevo
     await supabase.from('inscripciones').insert({
       clase_id: detalle.id, jugador_id: j.id, metodo_pago: 'Pendiente', pagado: false,
-      monto_cobrado: monto, mes: insDetalle[0]?.mes || MESES[new Date().getMonth()], anio: 2026,
+      monto_cobrado: montoFinal, mes: insDetalle[0]?.mes || MESES[new Date().getMonth()], anio: 2026,
+      fecha_entrada: fechaEntradaDetalle || null,
     })
-    setBusquedaDetalle(''); showToast(`${j.nombre} agregado ✓`); fetchAll()
+    setBusquedaDetalle('')
+    setFechaEntradaDetalle('')
+    const msg = saldoFavor > 0
+      ? `${j.nombre} agregado ✓ · Saldo a favor jugadores existentes: $${saldoFavor.toLocaleString('es-MX')} c/u`
+      : `${j.nombre} agregado ✓`
+    showToast(msg)
+    fetchAll()
   }
 
   const clasesFiltradas = clases.filter(c => {
@@ -203,8 +242,9 @@ export default function Clases({ usuario }) {
   })
 
   const insDetalle = detalle ? inscripciones.filter(i => i.clase_id === detalle.id) : []
+  const busquedaDetalleTrimmed = busquedaDetalle.trim()
   const jugadoresDisponiblesDetalle = jugadores.filter(j =>
-    j.nombre.toLowerCase().includes(busquedaDetalle.toLowerCase()) &&
+    (busquedaDetalleTrimmed === '' || j.nombre.toLowerCase().includes(busquedaDetalleTrimmed.toLowerCase())) &&
     !insDetalle.find(i => i.jugador_id === j.id)
   )
 
@@ -369,10 +409,10 @@ export default function Clases({ usuario }) {
                 <div style={{ position: 'relative', marginBottom: 10 }}>
                   <input className="form-input" placeholder="Buscar jugador..." value={busqueda} 
                     onChange={e => setBusqueda(e.target.value)} />
-                  {busqueda && jugadoresFiltrados.length > 0 && (
+                  {busqueda.length > 0 && jugadoresFiltrados.length > 0 && (
                     <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10, background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 8, maxHeight: 180, overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,.4)' }}>
                       {jugadoresFiltrados.slice(0, 6).map(j => (
-                        <div key={j.id} onMouseDown={e => { e.preventDefault(); setJugadoresClase(prev => [...prev, { jugador_id: j.id, nombre: j.nombre, metodo: 'Efectivo', pagado: false }]); setBusqueda('') }}
+                        <div key={j.id} onMouseDown={e => { e.preventDefault(); setJugadoresClase(prev => [...prev, { jugador_id: j.id, nombre: j.nombre, metodo: 'Efectivo', pagado: false, fecha_entrada: '' }]); setBusqueda('') }}
                           style={{ padding: '10px 14px', cursor: 'pointer', fontSize: 14, borderBottom: '1px solid var(--border)' }}
                           onMouseEnter={e => e.currentTarget.style.background = 'var(--border)'}
                           onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
@@ -394,6 +434,13 @@ export default function Clases({ usuario }) {
                         onChange={e => setJugadoresClase(prev => prev.map(x => x.jugador_id === j.jugador_id ? { ...x, pagado: e.target.checked } : x))} />
                       Pagado
                     </label>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      <input type="date" value={j.fecha_entrada || ''}
+                        onChange={e => setJugadoresClase(prev => prev.map(x => x.jugador_id === j.jugador_id ? { ...x, fecha_entrada: e.target.value } : x))}
+                        title="Fecha de entrada (dejar vacío = desde inicio)"
+                        style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 6, padding: '3px 6px', fontSize: 11, color: 'var(--text2)', maxWidth: 130 }} />
+                      <span style={{ fontSize: 9, color: 'var(--text2)', textAlign: 'center' }}>Fecha entrada</span>
+                    </div>
                     <button onClick={() => setJugadoresClase(prev => prev.filter(x => x.jugador_id !== j.jugador_id))}
                       style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer', fontSize: 16 }}>✕</button>
                   </div>
@@ -402,9 +449,23 @@ export default function Clases({ usuario }) {
 
               {jugadoresClase.length > 0 && (
                 <div style={{ background: 'rgba(0,229,160,.08)', border: '1px solid rgba(0,229,160,.2)', borderRadius: 8, padding: '12px 16px' }}>
-                  <div style={{ fontFamily: 'var(--mono)', fontSize: 20, fontWeight: 700, color: 'var(--accent)' }}>
-                    ${montoPorJugador.toLocaleString('es-MX')} <span style={{ fontSize: 13, fontWeight: 400, color: 'var(--text2)' }}>por jugador · {numClases} clase{numClases !== 1 ? 's' : ''}</span>
+                  <div style={{ fontFamily: 'var(--mono)', fontSize: 16, fontWeight: 700, color: 'var(--accent)', marginBottom: 6 }}>
+                    ${montoPorJugador.toLocaleString('es-MX')} base · {numClases} clase{numClases !== 1 ? 's' : ''}
                   </div>
+                  {jugadoresClase.map(j => {
+                    const monto = j.fecha_entrada && form.fecha_inicio
+                      ? calcMontoProporcional(montoPorJugador, j.fecha_entrada, form.fecha_inicio, numClases)
+                      : montoPorJugador
+                    const esProporcional = j.fecha_entrada && form.fecha_inicio && monto !== montoPorJugador
+                    return (
+                      <div key={j.jugador_id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginTop: 3 }}>
+                        <span style={{ color: 'var(--text2)' }}>{j.nombre}</span>
+                        <span style={{ fontFamily: 'var(--mono)', color: esProporcional ? 'var(--warn)' : 'var(--accent)', fontWeight: 600 }}>
+                          ${monto.toLocaleString('es-MX')} {esProporcional && `(desde ${j.fecha_entrada})`}
+                        </span>
+                      </div>
+                    )
+                  })}
                 </div>
               )}
 
@@ -443,12 +504,25 @@ export default function Clases({ usuario }) {
               </div>
             </div>
 
+            {insDetalle.length > 0 && (() => {
+              const montoActual = calcMonto(detalle?.modalidad, insDetalle.length, detalle?.clases_en_rango || 1)
+              const montoConUno = calcMonto(detalle?.modalidad, insDetalle.length + 1, detalle?.clases_en_rango || 1)
+              const saldo = montoActual - montoConUno
+              return saldo > 0 ? (
+                <div style={{ background: 'rgba(255,165,2,.08)', border: '1px solid rgba(255,165,2,.2)', borderRadius: 8, padding: '8px 12px', fontSize: 12, color: 'var(--warn)', marginBottom: 10 }}>
+                  💡 Si agregas un jugador más, el precio baja a ${montoConUno.toLocaleString('es-MX')} c/u · Saldo a favor jugadores actuales: <strong>${saldo.toLocaleString('es-MX')} c/u</strong>
+                </div>
+              ) : null
+            })()}
             <table className="table" style={{ marginBottom: 16 }}>
               <thead><tr><th>Jugador</th><th>Monto</th><th>Método</th><th>Pago</th></tr></thead>
               <tbody>
                 {insDetalle.map(i => (
                   <tr key={i.id}>
-                    <td style={{ fontWeight: 500 }}>{i.jugadores?.nombre}</td>
+                    <td style={{ fontWeight: 500 }}>
+                      {i.jugadores?.nombre}
+                      {i.fecha_entrada && <div style={{ fontSize: 10, color: 'var(--warn)' }}>Desde {i.fecha_entrada}</div>}
+                    </td>
                     <td><EditableMonto inscripcion={i} onUpdate={fetchAll} /></td>
                     <td style={{ fontSize: 13 }}>
                       {i.metodo_pago}
