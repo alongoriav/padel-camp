@@ -82,6 +82,9 @@ export default function Clases({ usuario }) {
   const [filterDesde, setFilterDesde] = useState('')
   const [filterHasta, setFilterHasta] = useState('')
   const [busquedaDetalle, setBusquedaDetalle] = useState('')
+  const [modalNuevoJugador, setModalNuevoJugador] = useState(false)
+  const [nuevoJugadorNombre, setNuevoJugadorNombre] = useState('')
+  const [nuevoJugadorDesde, setNuevoJugadorDesde] = useState('clase') // 'clase' or 'detalle'
   const isAdmin = usuario?.rol === 'admin'
 
   useEffect(() => { fetchAll() }, [])
@@ -117,6 +120,24 @@ export default function Clases({ usuario }) {
     j.nombre.toLowerCase().includes(busqueda.toLowerCase()) &&
     !jugadoresClase.find(jc => jc.jugador_id === j.id)
   )
+
+  const crearYAgregarJugador = async () => {
+    if (!nuevoJugadorNombre.trim()) return
+    const nombre = nuevoJugadorNombre.trim().split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ')
+    const { data } = await supabase.from('jugadores').insert({ nombre, activo: true }).select().single()
+    if (!data) { showToast('Error al crear jugador'); return }
+    // Refresh jugadores list
+    const { data: js } = await supabase.from('jugadores').select('*').eq('activo', true).order('nombre')
+    setJugadores(js || [])
+    if (nuevoJugadorDesde === 'clase') {
+      setJugadoresClase(prev => [...prev, { jugador_id: data.id, nombre: data.nombre, metodo: 'Efectivo', pagado: false }])
+    } else {
+      await agregarJugadorDetalle(data)
+    }
+    setNuevoJugadorNombre('')
+    setModalNuevoJugador(false)
+    showToast(`${nombre} creado y agregado ✓`)
+  }
 
   const guardarClase = async () => {
     if (!form.coach_id || jugadoresClase.length === 0 || !form.fecha_inicio) return
@@ -334,16 +355,20 @@ export default function Clases({ usuario }) {
                   <label className="form-label" style={{ margin: 0 }}>
                     Jugadores {jugadoresClase.length > 0 && <span style={{ color: 'var(--accent)' }}>({jugadoresClase.length})</span>}
                   </label>
-                  <button type="button" onClick={() => setBusqueda(' ')} style={{
-                    display: 'flex', alignItems: 'center', gap: 5,
-                    background: 'var(--accent)', border: 'none', borderRadius: 8,
-                    padding: '5px 12px', cursor: 'pointer', fontSize: 13, fontWeight: 700, color: '#000'
-                  }}>+ Agregar jugador</button>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button type="button" onClick={() => { setNuevoJugadorDesde('clase'); setModalNuevoJugador(true) }} style={{
+                      background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 8,
+                      padding: '5px 12px', cursor: 'pointer', fontSize: 13, color: 'var(--text2)'
+                    }}>+ Nuevo</button>
+                    <button type="button" onClick={() => setBusqueda(' ')} style={{
+                      background: 'var(--accent)', border: 'none', borderRadius: 8,
+                      padding: '5px 12px', cursor: 'pointer', fontSize: 13, fontWeight: 700, color: '#000'
+                    }}>+ Agregar</button>
+                  </div>
                 </div>
                 <div style={{ position: 'relative', marginBottom: 10 }}>
                   <input className="form-input" placeholder="Buscar jugador..." value={busqueda} 
-                    onChange={e => setBusqueda(e.target.value)}
-                    onBlur={() => setTimeout(() => setBusqueda(''), 200)} />
+                    onChange={e => setBusqueda(e.target.value)} />
                   {busqueda && jugadoresFiltrados.length > 0 && (
                     <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10, background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 8, maxHeight: 180, overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,.4)' }}>
                       {jugadoresFiltrados.slice(0, 6).map(j => (
@@ -445,11 +470,16 @@ export default function Clases({ usuario }) {
             </table>
 
             <div style={{ borderTop: '1px solid var(--border)', paddingTop: 14 }}>
-              <label className="form-label" style={{ marginBottom: 8, display: 'block' }}>Agregar jugador al grupo</label>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <label className="form-label" style={{ margin: 0 }}>Agregar jugador al grupo</label>
+                <button type="button" onClick={() => { setNuevoJugadorDesde('detalle'); setModalNuevoJugador(true) }} style={{
+                  background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 8,
+                  padding: '4px 10px', cursor: 'pointer', fontSize: 12, color: 'var(--text2)'
+                }}>+ Jugador nuevo</button>
+              </div>
               <div style={{ position: 'relative' }}>
                 <input className="form-input" placeholder="Buscar jugador..." value={busquedaDetalle} 
-                  onChange={e => setBusquedaDetalle(e.target.value)}
-                  onBlur={() => setTimeout(() => setBusquedaDetalle(''), 200)} />
+                  onChange={e => setBusquedaDetalle(e.target.value)} />
                 {busquedaDetalle && jugadoresDisponiblesDetalle.length > 0 && (
                   <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10, background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 8, maxHeight: 180, overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,.4)' }}>
                     {jugadoresDisponiblesDetalle.slice(0, 6).map(j => (
@@ -462,6 +492,30 @@ export default function Clases({ usuario }) {
                     ))}
                   </div>
                 )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal nuevo jugador */}
+      {modalNuevoJugador && (
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setModalNuevoJugador(false)}>
+          <div className="modal" style={{ maxWidth: 380 }}>
+            <h2 className="modal-title">Nuevo jugador</h2>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div className="form-group">
+                <label className="form-label">Nombre completo</label>
+                <input className="form-input" placeholder="Ej: Juan Pérez" value={nuevoJugadorNombre}
+                  onChange={e => setNuevoJugadorNombre(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && crearYAgregarJugador()}
+                  autoFocus />
+              </div>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                <button className="btn btn-secondary" onClick={() => setModalNuevoJugador(false)}>Cancelar</button>
+                <button className="btn btn-primary" onClick={crearYAgregarJugador} disabled={!nuevoJugadorNombre.trim()}>
+                  Crear y agregar
+                </button>
               </div>
             </div>
           </div>
