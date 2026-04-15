@@ -48,6 +48,19 @@ function calcMonto(modalidad, participantes, clases) {
   return precios[p]?.['Clase única'] || 0
 }
 
+function calcMontoProporcional(montoBase, fechaEntrada, fechaInicio, clasesTotal) {
+  if (!fechaEntrada || !fechaInicio || fechaEntrada <= fechaInicio) return montoBase
+  const inicio = new Date(fechaInicio + 'T00:00:00')
+  const entrada = new Date(fechaEntrada + 'T00:00:00')
+  const fin = new Date(inicio)
+  fin.setMonth(fin.getMonth() + 1)
+  fin.setDate(0)
+  const diasTotales = Math.round((fin - inicio) / (1000*60*60*24)) + 1
+  const diasRestantes = Math.round((fin - entrada) / (1000*60*60*24)) + 1
+  const proporcion = Math.min(1, Math.max(0, diasRestantes / diasTotales))
+  return Math.round(montoBase * proporcion)
+}
+
 export default function Agenda({ usuario }) {
   const [semana, setSemana] = useState(getLunes(new Date()))
   const [clases, setClases] = useState([])
@@ -62,6 +75,7 @@ export default function Agenda({ usuario }) {
   const [jugadoresClase, setJugadoresClase] = useState([])
   const [busqueda, setBusqueda] = useState('')
   const [busquedaDetalle, setBusquedaDetalle] = useState('')
+  const [fechaEntradaDetalle, setFechaEntradaDetalle] = useState('')
   const [toast, setToast] = useState('')
   const [modalNuevoJugador, setModalNuevoJugador] = useState(false)
   const [nuevoJugadorNombre, setNuevoJugadorNombre] = useState('')
@@ -137,7 +151,7 @@ export default function Agenda({ usuario }) {
 
   const abrirDetalle = async (c) => {
     setDetalleClase(c)
-    const { data } = await supabase.from('inscripciones').select('*, jugadores(nombre)').eq('clase_id', c.id)
+    const { data } = await supabase.from('inscripciones').select('*, jugadores(nombre), clases(fecha_inicio, clases_en_rango, modalidad, tipo)').eq('clase_id', c.id)
     setInscripcionesDetalle(data || [])
     setBusquedaDetalle('')
   }
@@ -179,26 +193,40 @@ export default function Agenda({ usuario }) {
 
   const agregarJugadorDetalle = async (j) => {
     const nuevosParticipantes = inscripcionesDetalle.length + 1
-    const monto = calcMonto(detalleClase.modalidad, nuevosParticipantes, 1)
+    const montoBase = calcMonto(detalleClase.modalidad, nuevosParticipantes, detalleClase.clases_en_rango || 1)
+    const montoAnterior = calcMonto(detalleClase.modalidad, inscripcionesDetalle.length, detalleClase.clases_en_rango || 1)
+    const saldoFavor = montoAnterior - montoBase
+    const montoFinal = fechaEntradaDetalle && detalleClase.fecha_inicio
+      ? calcMontoProporcional(montoBase, fechaEntradaDetalle, detalleClase.fecha_inicio, detalleClase.clases_en_rango || 1)
+      : montoBase
     await supabase.from('inscripciones').insert({
       clase_id: detalleClase.id, jugador_id: j.id,
       metodo_pago: 'Pendiente', pagado: false,
-      monto_cobrado: monto, mes: inscripcionesDetalle[0]?.mes || MESES[new Date().getMonth()], anio: 2026,
+      monto_cobrado: montoFinal,
+      mes: inscripcionesDetalle[0]?.mes || MESES[new Date().getMonth()],
+      anio: 2026,
+      fecha_entrada: fechaEntradaDetalle || null,
     })
     setBusquedaDetalle('')
-    showToast(`${j.nombre} agregado ✓`)
+    setFechaEntradaDetalle('')
+    const msg = saldoFavor > 0
+      ? `${j.nombre} agregado ✓ · Saldo a favor existentes: $${saldoFavor.toLocaleString('es-MX')} c/u`
+      : `${j.nombre} agregado ✓`
+    showToast(msg)
     const { data } = await supabase.from('inscripciones').select('*, jugadores(nombre)').eq('clase_id', detalleClase.id)
     setInscripcionesDetalle(data || [])
     fetchData()
   }
 
+  const busquedaTrimmed = busqueda.trim()
   const jugadoresFiltrados = jugadores.filter(j =>
-    j.nombre.toLowerCase().includes(busqueda.toLowerCase()) &&
+    (busquedaTrimmed === '' || j.nombre.toLowerCase().includes(busquedaTrimmed.toLowerCase())) &&
     !jugadoresClase.find(jc => jc.jugador_id === j.id)
   )
 
+  const busquedaDetalleTrimmed = busquedaDetalle.trim()
   const jugadoresDisponiblesDetalle = jugadores.filter(j =>
-    j.nombre.toLowerCase().includes(busquedaDetalle.toLowerCase()) &&
+    (busquedaDetalleTrimmed === '' || j.nombre.toLowerCase().includes(busquedaDetalleTrimmed.toLowerCase())) &&
     !inscripcionesDetalle.find(i => i.jugador_id === j.id)
   )
 
@@ -218,11 +246,15 @@ export default function Agenda({ usuario }) {
       activo: true,
     }).select().single()
     if (!claseData) { showToast('Error al guardar'); return }
-    await supabase.from('inscripciones').insert(jugadoresClase.map(j => ({
-      clase_id: claseData.id, jugador_id: j.jugador_id,
-      metodo_pago: j.metodo, pagado: j.pagado,
-      monto_cobrado: montoPorJugador, mes: formNueva.mes, anio: formNueva.anio,
-    })))
+    await supabase.from('inscripciones').insert(jugadoresClase.map(j => {
+      const montoFinal = j._montoProporcional != null ? j._montoProporcional : montoPorJugador
+      return {
+        clase_id: claseData.id, jugador_id: j.jugador_id,
+        metodo_pago: j.metodo, pagado: j.pagado,
+        monto_cobrado: montoFinal, mes: formNueva.mes, anio: formNueva.anio,
+        fecha_entrada: j.fecha_entrada || null,
+      }
+    }))
     showToast('Clase creada ✓')
     setModalNueva(false)
     fetchData()
@@ -380,11 +412,42 @@ export default function Agenda({ usuario }) {
 
             {isAdmin && (
               <div style={{ borderTop: '1px solid var(--border)', paddingTop: 14 }}>
+                {detalleClase?.tipo === 'Compartida' && inscripcionesDetalle.length > 0 && (() => {
+                  const montoActual = calcMonto(detalleClase.modalidad, inscripcionesDetalle.length, detalleClase.clases_en_rango || 1)
+                  const montoConUno = calcMonto(detalleClase.modalidad, inscripcionesDetalle.length + 1, detalleClase.clases_en_rango || 1)
+                  const saldo = montoActual - montoConUno
+                  return saldo > 0 ? (
+                    <div style={{ background: 'rgba(255,165,2,.08)', border: '1px solid rgba(255,165,2,.2)', borderRadius: 8, padding: '8px 12px', fontSize: 12, color: 'var(--warn)', marginBottom: 10 }}>
+                      💡 Al agregar un jugador el precio baja a ${montoConUno.toLocaleString('es-MX')} c/u · Saldo a favor actuales: <strong>${saldo.toLocaleString('es-MX')} c/u</strong>
+                    </div>
+                  ) : null
+                })()}
+                {detalleClase?.tipo === 'Compartida' && (
+                  <div style={{ marginBottom: 10 }}>
+                    <label style={{ fontSize: 11, color: 'var(--text2)', display: 'block', marginBottom: 4 }}>
+                      📅 Fecha de entrada del nuevo jugador <span style={{ fontStyle: 'italic' }}>(opcional — vacío = desde inicio)</span>
+                    </label>
+                    <input type="date" value={fechaEntradaDetalle}
+                      onChange={e => setFechaEntradaDetalle(e.target.value)}
+                      style={{ background: 'var(--bg3)', border: `1px solid ${fechaEntradaDetalle ? 'rgba(255,59,48,.5)' : 'var(--border)'}`, borderRadius: 8, padding: '7px 10px', fontSize: 13, color: 'var(--text)', width: '100%' }} />
+                    {fechaEntradaDetalle && detalleClase?.fecha_inicio && (
+                      <div style={{ marginTop: 6, background: 'rgba(255,165,2,.1)', border: '1px solid rgba(255,165,2,.3)', borderRadius: 8, padding: '6px 10px', fontSize: 12 }}>
+                        <span style={{ color: 'var(--text2)' }}>Monto proporcional: </span>
+                        <strong style={{ color: 'var(--warn)', fontFamily: 'var(--mono)' }}>
+                          ${calcMontoProporcional(
+                            calcMonto(detalleClase.modalidad, inscripcionesDetalle.length + 1, detalleClase.clases_en_rango || 1),
+                            fechaEntradaDetalle, detalleClase.fecha_inicio, detalleClase.clases_en_rango || 1
+                          ).toLocaleString('es-MX')}
+                        </strong>
+                      </div>
+                    )}
+                  </div>
+                )}
                 <label className="form-label" style={{ marginBottom: 8, display: 'block' }}>Agregar jugador al grupo</label>
                 <div style={{ position: 'relative' }}>
                   <input className="form-input" placeholder="Buscar jugador..."
                     value={busquedaDetalle} onChange={e => setBusquedaDetalle(e.target.value)} />
-                  {busquedaDetalle && jugadoresDisponiblesDetalle.length > 0 && (
+                  {busquedaDetalle.length > 0 && jugadoresDisponiblesDetalle.length > 0 && (
                     <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10, background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 8, maxHeight: 180, overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,.4)' }}>
                       {jugadoresDisponiblesDetalle.slice(0, 6).map(j => (
                         <div key={j.id} onClick={() => agregarJugadorDetalle(j)}
@@ -479,7 +542,7 @@ export default function Agenda({ usuario }) {
                   <input className="form-input" placeholder="Buscar jugador..."
                     value={busqueda} onChange={e => setBusqueda(e.target.value)}
                     />
-                  {busqueda && jugadoresFiltrados.length > 0 && (
+                  {busqueda.length > 0 && jugadoresFiltrados.length > 0 && (
                     <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10, background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 8, maxHeight: 180, overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,.4)' }}>
                       {jugadoresFiltrados.slice(0, 6).map(j => (
                         <div key={j.id} onClick={() => { setJugadoresClase(prev => [...prev, { jugador_id: j.id, nombre: j.nombre, metodo: 'Efectivo', pagado: false }]); setBusqueda('') }}
@@ -504,6 +567,40 @@ export default function Agenda({ usuario }) {
                         onChange={e => setJugadoresClase(prev => prev.map(x => x.jugador_id === j.jugador_id ? { ...x, pagado: e.target.checked } : x))} />
                       Pagado
                     </label>
+                    {formNueva.tipo === 'Compartida' && (
+                      <div style={{ position: 'relative' }}>
+                        <button onClick={() => setJugadoresClase(prev => prev.map(x => x.jugador_id === j.jugador_id ? { ...x, _showCal: !x._showCal } : x))}
+                          style={{ background: j.fecha_entrada ? 'rgba(255,59,48,.2)' : 'rgba(255,59,48,.1)', border: '1px solid rgba(255,59,48,.4)', borderRadius: 8, padding: '5px 8px', cursor: 'pointer', fontSize: 11, color: '#ff3b30', whiteSpace: 'nowrap', fontWeight: 600 }}>
+                          📅 {j.fecha_entrada ? j.fecha_entrada : 'Fecha entrada'}
+                        </button>
+                        {j._showCal && (
+                          <div style={{ position: 'absolute', right: 0, top: '110%', zIndex: 50, background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 12, padding: 14, boxShadow: '0 8px 32px rgba(0,0,0,.5)', minWidth: 260 }}>
+                            <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 8 }}>¿Desde cuándo entra este jugador?</div>
+                            <input type="date" value={j.fecha_entrada || ''}
+                              onChange={e => {
+                                const fecha = e.target.value
+                                const montoBase = calcMonto(formNueva.modalidad, jugadoresClase.length, numClases)
+                                const montoP = fecha && formNueva.fecha_inicio ? calcMontoProporcional(montoBase, fecha, formNueva.fecha_inicio, numClases) : montoBase
+                                setJugadoresClase(prev => prev.map(x => x.jugador_id === j.jugador_id ? { ...x, fecha_entrada: fecha, _showCal: false, _montoProporcional: montoP } : x))
+                              }}
+                              style={{ width: '100%', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px', fontSize: 14, color: 'var(--text)' }} />
+                            {j.fecha_entrada && formNueva.fecha_inicio && (
+                              <div style={{ marginTop: 10, background: 'rgba(255,165,2,.1)', border: '1px solid rgba(255,165,2,.3)', borderRadius: 8, padding: '8px 12px' }}>
+                                <div style={{ fontSize: 11, color: 'var(--warn)', marginBottom: 2 }}>Monto proporcional:</div>
+                                <div style={{ fontFamily: 'var(--mono)', fontSize: 18, fontWeight: 700, color: 'var(--warn)' }}>
+                                  ${calcMontoProporcional(calcMonto(formNueva.modalidad, jugadoresClase.length, numClases), j.fecha_entrada, formNueva.fecha_inicio, numClases).toLocaleString('es-MX')}
+                                </div>
+                                <div style={{ fontSize: 10, color: 'var(--text2)', marginTop: 2 }}>vs ${calcMonto(formNueva.modalidad, jugadoresClase.length, numClases).toLocaleString('es-MX')} base</div>
+                              </div>
+                            )}
+                            <button onClick={() => setJugadoresClase(prev => prev.map(x => x.jugador_id === j.jugador_id ? { ...x, fecha_entrada: '', _showCal: false, _montoProporcional: null } : x))}
+                              style={{ marginTop: 8, width: '100%', background: 'transparent', border: '1px solid var(--border)', borderRadius: 8, padding: '6px', fontSize: 12, color: 'var(--text2)', cursor: 'pointer' }}>
+                              Quitar fecha
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
                     <button onClick={() => setJugadoresClase(prev => prev.filter(x => x.jugador_id !== j.jugador_id))}
                       style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer', fontSize: 16 }}>✕</button>
                   </div>
@@ -512,8 +609,21 @@ export default function Agenda({ usuario }) {
 
               {jugadoresClase.length > 0 && (
                 <div style={{ background: 'rgba(0,229,160,.08)', border: '1px solid rgba(0,229,160,.2)', borderRadius: 8, padding: '12px 16px' }}>
-                  <div style={{ fontFamily: 'var(--mono)', fontSize: 20, fontWeight: 700, color: 'var(--accent)' }}>
-                    ${montoPorJugador.toLocaleString('es-MX')} <span style={{ fontSize: 13, fontWeight: 400, color: 'var(--text2)' }}>por jugador · {numClases} clase{numClases !== 1 ? 's' : ''}</span>
+                  {jugadoresClase.map(j => {
+                    const monto = j._montoProporcional != null ? j._montoProporcional : montoPorJugador
+                    const esProporcional = j._montoProporcional != null && j._montoProporcional !== montoPorJugador
+                    return (
+                      <div key={j.jugador_id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginTop: 3 }}>
+                        <span style={{ color: 'var(--text2)' }}>{j.nombre} {j.fecha_entrada && <span style={{ color: 'var(--danger)', fontSize: 11 }}>desde {j.fecha_entrada}</span>}</span>
+                        <span style={{ fontFamily: 'var(--mono)', color: esProporcional ? 'var(--warn)' : 'var(--accent)', fontWeight: 700, fontSize: 15 }}>
+                          ${monto.toLocaleString('es-MX')}
+                        </span>
+                      </div>
+                    )
+                  })}
+                  <div style={{ borderTop: '1px solid rgba(0,229,160,.2)', marginTop: 8, paddingTop: 8, display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text2)' }}>
+                    <span>Precio base: ${montoPorJugador.toLocaleString('es-MX')}/jugador · {numClases} clase{numClases !== 1 ? 's' : ''}</span>
+                    <span style={{ color: 'var(--accent)', fontWeight: 600 }}>Total: ${jugadoresClase.reduce((a, j) => a + (j._montoProporcional != null ? j._montoProporcional : montoPorJugador), 0).toLocaleString('es-MX')}</span>
                   </div>
                 </div>
               )}
