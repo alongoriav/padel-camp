@@ -122,7 +122,7 @@ export default function Clases({ usuario }) {
     if (!form.coach_id || jugadoresClase.length === 0 || !form.fecha_inicio) return
     const { data: claseData } = await supabase.from('clases').insert({
       coach_id: form.coach_id, tipo: form.tipo, modalidad: form.modalidad,
-      dia: form.modalidad === 'Semanal' ? form.dia : null,
+      dia: (form.modalidad === 'Semanal' || form.modalidad === 'Promo') && form.dia ? form.dia : null,
       hora: form.hora + ':00', fecha_inicio: form.fecha_inicio,
       fecha_fin: form.modalidad === 'Semanal' ? form.fecha_fin : form.fecha_inicio, activo: true,
     }).select().single()
