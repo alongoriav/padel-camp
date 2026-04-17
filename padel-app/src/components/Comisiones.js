@@ -422,8 +422,14 @@ export default function Comisiones() {
         } else if (coach?.esquema_comision === 'Bono') {
           comisionIns = (coach.pago_extra_clase || 0)
         } else if (coach?.esquema_comision === 'Mixto') {
-          const neto = coach.aplica_iva ? ingresoClase / 1.16 : ingresoClase
-          comisionIns = ((i.clases?.tipo === 'Privada' ? coach.tarifa_privada_fija || 0 : 0) + neto * (coach.porcentaje_comision || 0)) / insClase.length
+          // Privada: tarifa fija por clase (dividida entre jugadores de esa clase)
+          // Compartida: % sobre ingreso neto de esa inscripción
+          if (i.clases?.tipo === 'Privada') {
+            comisionIns = (coach.tarifa_privada_fija || 0) / insClase.length
+          } else {
+            const netoIns = coach.aplica_iva ? (i.monto_cobrado || 0) / 1.16 : (i.monto_cobrado || 0)
+            comisionIns = netoIns * (coach.porcentaje_comision || 0)
+          }
         }
 
         rows.push({
