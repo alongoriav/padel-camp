@@ -494,7 +494,17 @@ export default function Comisiones() {
             const neto = coach.aplica_iva ? ingresoTeorico / 1.16 : ingresoTeorico
             comisionTotal = (coach.sueldo_base || 0) + horasTotales * (coach.tarifa_privada_fija || 0) + neto * (coach.porcentaje_comision || 0)
           }
-          const ingresoTotalMes = insCoachMes.reduce((a, x) => a + (x.monto_cobrado || 0), 0)
+          // ingresoTotalMes = base del denominador: solo pagados + promo (teórico)
+          let ingresoTotalMes = 0
+          insParaComision.forEach(x => {
+            const mod = x.clases?.modalidad
+            if (mod === 'Promo' || mod === 'Cortesía') {
+              const nPart = Math.min(insCoachMes.filter(y => y.clase_id === x.clase_id).length, 4)
+              ingresoTotalMes += PRECIOS_T[nPart]?.Semanal || 0
+            } else {
+              ingresoTotalMes += x.monto_cobrado || 0
+            }
+          })
           comisionPorCoach[keyCoach] = { comisionTotal, ingresoTotalMes }
         }
       })
