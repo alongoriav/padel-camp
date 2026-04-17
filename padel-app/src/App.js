@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from './supabase'
 import Login from './components/Login'
 import Dashboard from './components/Dashboard'
@@ -11,11 +11,14 @@ import Precios from './components/Precios'
 import EnVivo from './components/EnVivo'
 import Sidebar from './components/Sidebar'
 
+const INACTIVITY_TIMEOUT = 120000 // 120 seconds
+
 export default function App() {
   const [session, setSession] = useState(null)
   const [usuario, setUsuario] = useState(null)
-  const [page, setPage] = useState('dashboard')
+  const [page, setPage] = useState('envivo')
   const [loading, setLoading] = useState(true)
+  const timerRef = useRef(null)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -30,6 +33,24 @@ export default function App() {
     })
     return () => subscription.unsubscribe()
   }, [])
+
+  // Auto-redirect to EnVivo after 120s inactivity
+  useEffect(() => {
+    if (!session) return
+    const resetTimer = () => {
+      if (timerRef.current) clearTimeout(timerRef.current)
+      timerRef.current = setTimeout(() => {
+        setPage('envivo')
+      }, INACTIVITY_TIMEOUT)
+    }
+    const events = ['mousedown', 'mousemove', 'keydown', 'scroll', 'touchstart', 'click']
+    events.forEach(e => window.addEventListener(e, resetTimer))
+    resetTimer()
+    return () => {
+      events.forEach(e => window.removeEventListener(e, resetTimer))
+      if (timerRef.current) clearTimeout(timerRef.current)
+    }
+  }, [session])
 
   const fetchUsuario = async (uid) => {
     const { data } = await supabase.from('usuarios').select('*').eq('id', uid).single()
@@ -62,7 +83,7 @@ export default function App() {
     <div style={{ display:'flex', minHeight:'100vh' }}>
       <Sidebar page={page} setPage={setPage} isAdmin={isAdmin} usuario={usuario} />
       <main style={{ flex:1, padding:'24px', overflowY:'auto', maxWidth:'100%' }}>
-        {pages[page] || pages.dashboard}
+        {pages[page] || pages.envivo}
       </main>
     </div>
   )
