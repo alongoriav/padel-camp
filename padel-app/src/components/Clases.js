@@ -95,6 +95,8 @@ export default function Clases({ usuario }) {
   const [filterCoach, setFilterCoach] = useState('')
   const [filterMes, setFilterMes] = useState('')
   const [filterDesde, setFilterDesde] = useState('')
+  const [sortCol, setSortCol] = useState('fecha_inicio')
+  const [sortDir, setSortDir] = useState('desc')
   const [filterHasta, setFilterHasta] = useState('')
   const [busquedaDetalle, setBusquedaDetalle] = useState('')
   const [fechaEntradaDetalle, setFechaEntradaDetalle] = useState('')
@@ -238,6 +240,16 @@ export default function Clases({ usuario }) {
     fetchAll()
   }
 
+  const toggleSort = (col) => {
+    if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortCol(col); setSortDir('asc') }
+  }
+
+  const SortIcon = ({ col }) => {
+    if (sortCol !== col) return <span style={{ color: 'var(--border)', marginLeft: 4 }}>↕</span>
+    return <span style={{ color: 'var(--accent)', marginLeft: 4 }}>{sortDir === 'asc' ? '↑' : '↓'}</span>
+  }
+
   const clasesFiltradas = clases.filter(c => {
     if (!isAdmin && c.coach_id !== usuario?.coach_id) return false
     if (filterCoach && c.coach_id !== filterCoach) return false
@@ -248,6 +260,25 @@ export default function Clases({ usuario }) {
     if (filterDesde && c.fecha_inicio < filterDesde) return false
     if (filterHasta && c.fecha_inicio > filterHasta) return false
     return true
+  })
+
+  const clasesFiltradas2 = [...clasesFiltradas].sort((a, b) => {
+    let va, vb
+    const ins_a = inscripciones.filter(i => i.clase_id === a.id)
+    const ins_b = inscripciones.filter(i => i.clase_id === b.id)
+    switch(sortCol) {
+      case 'coach': va = a.coaches?.nombre || ''; vb = b.coaches?.nombre || ''; break
+      case 'tipo': va = a.tipo || ''; vb = b.tipo || ''; break
+      case 'modalidad': va = a.modalidad || ''; vb = b.modalidad || ''; break
+      case 'horario': va = (a.dia || '') + (a.hora || ''); vb = (b.dia || '') + (b.hora || ''); break
+      case 'jugadores': va = ins_a.length; vb = ins_b.length; break
+      case 'mes': va = ins_a[0]?.mes || ''; vb = ins_b[0]?.mes || ''; break
+      case 'pagos': va = ins_a.filter(i => i.pagado).length / (ins_a.length || 1); vb = ins_b.filter(i => i.pagado).length / (ins_b.length || 1); break
+      default: va = a.fecha_inicio || ''; vb = b.fecha_inicio || ''
+    }
+    if (va < vb) return sortDir === 'asc' ? -1 : 1
+    if (va > vb) return sortDir === 'asc' ? 1 : -1
+    return 0
   })
 
   const insDetalle = detalle ? inscripciones.filter(i => i.clase_id === detalle.id) : []
@@ -294,13 +325,17 @@ export default function Clases({ usuario }) {
       <div className="card" style={{ padding: 0 }}>
         <table className="table">
           <thead><tr>
-            <th>Coach</th><th>Tipo</th><th>Modalidad</th><th>Horario</th><th>Jugadores</th><th>Mes</th><th>Pagos</th>
+            {[['coach','Coach'],['tipo','Tipo'],['modalidad','Modalidad'],['horario','Horario'],['jugadores','Jugadores'],['mes','Mes'],['pagos','Pagos']].map(([col, label]) => (
+              <th key={col} onClick={() => toggleSort(col)} style={{ cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}>
+                {label}<SortIcon col={col} />
+              </th>
+            ))}
           </tr></thead>
           <tbody>
-            {clasesFiltradas.length === 0 && (
+            {clasesFiltradas2.length === 0 && (
               <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--text2)', padding: 32 }}>Sin clases</td></tr>
             )}
-            {clasesFiltradas.map(c => {
+            {clasesFiltradas2.map(c => {
               const ins = inscripciones.filter(i => i.clase_id === c.id)
               const pagados = ins.filter(i => i.pagado).length
               return (
