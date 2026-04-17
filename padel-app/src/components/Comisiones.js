@@ -414,59 +414,114 @@ export default function Comisiones() {
         return true
       })
 
-      // Build rows
-      const rows = []
-      const clasesVistas = {}
+      // Group by coach + jugador + mes — one row per player per month
+      const grupos = {}
       insReporte.forEach(i => {
         const coach = coaches.find(c => c.id === i.clases?.coach_id)
-        // Calc comision for this inscription
-        const claseId = i.clase_id
-        if (!clasesVistas[claseId]) clasesVistas[claseId] = 0
-        clasesVistas[claseId]++
-        const insClase = insReporte.filter(x => x.clase_id === claseId)
-        const ingresoClase = insClase.reduce((a, x) => a + (x.monto_cobrado || 0), 0)
-        const horasClase = i.clases?.clases_en_rango || 1
-        // Proportional commission per inscription
-        let comisionIns = 0
-        if (coach?.esquema_comision === 'Porcentaje') {
-          const neto = coach.aplica_iva ? ingresoClase / 1.16 : ingresoClase
-          comisionIns = (neto * (coach.porcentaje_comision || 0)) / insClase.length
-        } else if (coach?.esquema_comision === 'Bono') {
-          comisionIns = (coach.pago_extra_clase || 0)
-        } else if (coach?.esquema_comision === 'Mixto') {
-          // Privada: tarifa fija por clase (dividida entre jugadores de esa clase)
-          // Compartida: % sobre ingreso neto de esa inscripción
-          if (i.clases?.tipo === 'Privada') {
-            comisionIns = (coach.tarifa_privada_fija || 0) / insClase.length
-          } else {
-            const netoIns = coach.aplica_iva ? (i.monto_cobrado || 0) / 1.16 : (i.monto_cobrado || 0)
-            comisionIns = netoIns * (coach.porcentaje_comision || 0)
+        const key = `${coach?.nombre}||${i.jugadores?.nombre}||${i.mes}`
+        if (!grupos[key]) {
+          grupos[key] = {
+            coach: coach,
+            coachNombre: coach?.nombre || '—',
+            jugador: i.jugadores?.nombre || '—',
+            mes: i.mes || '—',
+            montoTotal: 0,
+            montoPagado: 0,
+            montoPendiente: 0,
+            clases: 0,
+            metodos: new Set(),
+            pagado: true,
+            tipos: new Set(),
+            modalidades: new Set(),
+            dias: new Set(),
+            horarios: new Set(),
           }
         }
-
-        rows.push({
-          'Coach': coach?.nombre || '—',
-          'Fecha clase': i.clases?.fecha_inicio || '—',
-          'Horario': i.clases?.hora?.slice(0,5) || '—',
-          'Día': i.clases?.dia || '—',
-          'Tipo': i.clases?.tipo || '—',
-          'Modalidad': i.clases?.modalidad || '—',
-          'Jugador': i.jugadores?.nombre || '—',
-          'Mes cobro': i.mes || '—',
-          'Monto ($)': i.monto_cobrado || 0,
-          'Pagado': i.pagado ? 'Sí' : 'No',
-          'Método pago': i.metodo_pago || '—',
-          'Comisión coach ($)': Math.round(comisionIns),
-        })
+        const g = grupos[key]
+        g.montoTotal += i.monto_cobrado || 0
+        if (i.pagado) g.montoPagado += i.monto_cobrado || 0
+        else { g.montoPendiente += i.monto_cobrado || 0; g.pagado = false }
+        g.clases++
+        if (i.metodo_pago) g.metodos.add(i.metodo_pago)
+        if (i.clases?.tipo) g.tipos.add(i.clases.tipo)
+        if (i.clases?.modalidad) g.modalidades.add(i.clases.modalidad)
+        if (i.clases?.dia) g.dias.add(i.clases.dia)
+        if (i.clases?.hora) g.horarios.add(i.clases.hora.slice(0,5))
       })
+
+      // Calculate total commission per coach per month, then distribute proportionally
+      const comisionPorCoach = {}
+      insReporte.forEach(i => {
+        const coach = coaches.find(c => c.id === i.clases?.coach_id)
+        if (!coach) return
+        const keyCoach = `${coach.nombre}||${i.mes}`
+        if (!comisionPorCoach[keyCoach]) {
+          // Calc total commission for this coach this month
+          const insCoachMes = insReporte.filter(x => x.clases?.coach_id === coach.id && x.mes === i.mes)
+          const insParaComision = insCoachMes.filter(x => {
+            const mod = x.clases?.modalidad
+            return mod === 'Promo' || mod === 'Cortesía' || x.pagado
+          })
+          const seen = new Set()
+          let horasTotales = 0
+          insParaComision.forEach(x => {
+            if (!seen.has(x.clase_id)) { seen.add(x.clase_id); horasTotales += (x.clases?.clases_en_rango || 1) }
+          })
+          let ingresoTeorico = 0
+          insParaComision.forEach(x => {
+            ingresoTeorico += x.monto_cobrado || 0
+          })
+          let comisionTotal = 0
+          if (coach.esquema_comision === 'Porcentaje') {
+            const neto = coach.aplica_iva ? ingresoTeorico / 1.16 : ingresoTeorico
+            comisionTotal = (coach.sueldo_base || 0) + neto * (coach.porcentaje_comision || 0)
+          } else if (coach.esquema_comision === 'Bono') {
+            const horasMin = coach.horas_base_bono || 40
+            const pctAlcance = horasTotales / horasMin
+            let pctBase = pctAlcance >= 1.0 ? (coach.tramo4_pct ?? 1.0) : pctAlcance > 0.6 ? (coach.tramo3_pct ?? 0.7) : pctAlcance > 0.3 ? (coach.tramo2_pct ?? 0.5) : (coach.tramo1_pct ?? 0.3)
+            comisionTotal = (coach.sueldo_base || 0) * pctBase + Math.max(0, horasTotales - (coach.clases_base || 0)) * (coach.pago_extra_clase || 0)
+          } else if (coach.esquema_comision === 'Mixto') {
+            const neto = coach.aplica_iva ? ingresoTeorico / 1.16 : ingresoTeorico
+            comisionTotal = (coach.sueldo_base || 0) + horasTotales * (coach.tarifa_privada_fija || 0) + neto * (coach.porcentaje_comision || 0)
+          }
+          const ingresoTotalMes = insCoachMes.reduce((a, x) => a + (x.monto_cobrado || 0), 0)
+          comisionPorCoach[keyCoach] = { comisionTotal, ingresoTotalMes }
+        }
+      })
+
+      // Build rows — one per jugador per coach per mes
+      const rows = Object.values(grupos).map(g => {
+        const keyCoach = `${g.coachNombre}||${g.mes}`
+        const { comisionTotal = 0, ingresoTotalMes = 1 } = comisionPorCoach[keyCoach] || {}
+        // Proportional commission: jugador's share = his monto / total coach income
+        const proporcion = ingresoTotalMes > 0 ? g.montoTotal / ingresoTotalMes : 0
+        const comisionProporcional = Math.round(comisionTotal * proporcion)
+
+        return {
+          'Coach': g.coachNombre,
+          'Mes cobro': g.mes,
+          'Jugador': g.jugador,
+          'Día(s)': [...g.dias].join(', ') || '—',
+          'Horario(s)': [...g.horarios].join(', ') || '—',
+          'Tipo': [...g.tipos].join(', ') || '—',
+          'Modalidad': [...g.modalidades].join(', ') || '—',
+          'Clases en mes': g.clases,
+          'Monto total ($)': g.montoTotal,
+          'Monto pagado ($)': g.montoPagado,
+          'Monto pendiente ($)': g.montoPendiente,
+          'Pagado': g.pagado ? 'Sí' : 'Parcial/No',
+          'Método(s) pago': [...g.metodos].join(', ') || '—',
+          'Comisión coach ($)': comisionProporcional,
+        }
+      }).sort((a, b) => a['Coach'].localeCompare(b['Coach']) || a['Jugador'].localeCompare(b['Jugador']))
 
       if (rows.length === 0) { alert('Sin datos para el periodo seleccionado'); setGenerandoExcel(false); return }
 
       const ws = window.XLSX.utils.json_to_sheet(rows)
       // Column widths
       ws['!cols'] = [
-        {wch:20},{wch:14},{wch:10},{wch:12},{wch:14},{wch:14},
-        {wch:24},{wch:12},{wch:12},{wch:8},{wch:16},{wch:16}
+        {wch:22},{wch:12},{wch:24},{wch:18},{wch:14},{wch:14},
+        {wch:16},{wch:10},{wch:14},{wch:14},{wch:16},{wch:10},{wch:18},{wch:16}
       ]
 
       const wb = window.XLSX.utils.book_new()
