@@ -98,6 +98,8 @@ export default function Clases({ usuario }) {
   const [filterHasta, setFilterHasta] = useState('')
   const [busquedaDetalle, setBusquedaDetalle] = useState('')
   const [fechaEntradaDetalle, setFechaEntradaDetalle] = useState('')
+  const [editandoHora, setEditandoHora] = useState(false)
+  const [nuevaHora, setNuevaHora] = useState('')
   const [modalNuevoJugador, setModalNuevoJugador] = useState(false)
   const [nuevoJugadorNombre, setNuevoJugadorNombre] = useState('')
   const [nuevoJugadorDesde, setNuevoJugadorDesde] = useState('clase') // 'clase' or 'detalle'
@@ -137,6 +139,15 @@ export default function Clases({ usuario }) {
     (busquedaTrimmed === '' || j.nombre.toLowerCase().includes(busquedaTrimmed.toLowerCase())) &&
     !jugadoresClase.find(jc => jc.jugador_id === j.id)
   )
+
+  const guardarHora = async () => {
+    if (!nuevaHora || !detalle) return
+    await supabase.from('clases').update({ hora: nuevaHora + ':00' }).eq('id', detalle.id)
+    setDetalle(d => ({ ...d, hora: nuevaHora + ':00' }))
+    setEditandoHora(false)
+    showToast('Horario actualizado ✓')
+    fetchAll()
+  }
 
   const crearYAgregarJugador = async () => {
     if (!nuevoJugadorNombre.trim()) return
@@ -515,7 +526,24 @@ export default function Clases({ usuario }) {
                   <span className={`badge ${detalle.tipo === 'Privada' ? 'badge-blue' : 'badge-yellow'}`}>{detalle.tipo}</span>
                   <span className={`badge ${detalle.modalidad === 'Semanal' ? 'badge-green' : 'badge-gray'}`}>{detalle.modalidad}</span>
                   {detalle.dia && <span style={{ fontSize: 13, color: 'var(--text2)' }}>📅 {detalle.dia}</span>}
-                  <span style={{ fontSize: 13, color: 'var(--text2)', fontFamily: 'var(--mono)' }}>🕐 {detalle.hora?.slice(0,5)}</span>
+                  {editandoHora ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <select className="form-input" value={nuevaHora} onChange={e => setNuevaHora(e.target.value)}
+                        style={{ padding: '3px 8px', fontSize: 13, maxWidth: 100 }}>
+                        {['06:00','07:00','08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00','21:00'].map(h => (
+                          <option key={h} value={h}>{h}</option>
+                        ))}
+                      </select>
+                      <button onClick={guardarHora} style={{ background: 'var(--accent)', border: 'none', borderRadius: 6, padding: '3px 8px', fontSize: 12, cursor: 'pointer', color: '#000', fontWeight: 700 }}>✓</button>
+                      <button onClick={() => setEditandoHora(false)} style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 6, padding: '3px 8px', fontSize: 12, cursor: 'pointer', color: 'var(--text2)' }}>✕</button>
+                    </div>
+                  ) : (
+                    <span onClick={() => { setNuevaHora(detalle.hora?.slice(0,5) || '09:00'); setEditandoHora(true) }}
+                      style={{ fontSize: 13, color: detalle.hora?.slice(0,5) === '00:00' ? 'var(--danger)' : 'var(--text2)', fontFamily: 'var(--mono)', cursor: 'pointer', textDecoration: 'underline dotted' }}
+                      title="Clic para editar horario">
+                      🕐 {detalle.hora?.slice(0,5)} {detalle.hora?.slice(0,5) === '00:00' && '⚠️'}
+                    </span>
+                  )}
                   <span style={{ fontSize: 13, color: 'var(--text2)' }}>{detalle.fecha_inicio}</span>
                 </div>
               </div>
