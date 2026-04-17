@@ -61,6 +61,13 @@ export default function Comisiones() {
   const [modalExport, setModalExport] = useState(false)
   const [coachExport, setCoachExport] = useState('todos')
   const [exportando, setExportando] = useState(false)
+  const [modalReporte, setModalReporte] = useState(false)
+  const [reporteModo, setReporteModo] = useState('mes')
+  const [reporteMes, setReporteMes] = useState(MESES[new Date().getMonth()])
+  const [reporteDesde, setReporteDesde] = useState('')
+  const [reporteHasta, setReporteHasta] = useState('')
+  const [reporteCoach, setReporteCoach] = useState('todos')
+  const [generandoExcel, setGenerandoExcel] = useState(false)
 
   useEffect(() => { fetchData() }, [])
   useEffect(() => { calcResumen() }, [mesSeleccionado, desde, hasta, modoFiltro, coaches, inscripciones, clases])
@@ -369,15 +376,106 @@ export default function Comisiones() {
     cargarJsPDF()
   }
 
+  const generarExcel = () => {
+    setGenerandoExcel(true)
+    const cargar = () => {
+      if (window.XLSX) { ejecutar(); return }
+      const s = document.createElement('script')
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'
+      s.onload = ejecutar
+      document.head.appendChild(s)
+    }
+
+    const ejecutar = () => {
+      // Filter inscriptions
+      const insReporte = inscripciones.filter(i => {
+        const coachId = i.clases?.coach_id
+        if (reporteCoach !== 'todos' && coachId !== reporteCoach) return false
+        if (reporteModo === 'mes') return i.mes === reporteMes
+        if (reporteModo === 'rango') {
+          const fecha = i.clases?.fecha_inicio
+          if (!fecha) return false
+          if (reporteDesde && fecha < reporteDesde) return false
+          if (reporteHasta && fecha > reporteHasta) return false
+          return true
+        }
+        return true
+      })
+
+      // Build rows
+      const rows = []
+      const clasesVistas = {}
+      insReporte.forEach(i => {
+        const coach = coaches.find(c => c.id === i.clases?.coach_id)
+        // Calc comision for this inscription
+        const claseId = i.clase_id
+        if (!clasesVistas[claseId]) clasesVistas[claseId] = 0
+        clasesVistas[claseId]++
+        const insClase = insReporte.filter(x => x.clase_id === claseId)
+        const ingresoClase = insClase.reduce((a, x) => a + (x.monto_cobrado || 0), 0)
+        const horasClase = i.clases?.clases_en_rango || 1
+        // Proportional commission per inscription
+        let comisionIns = 0
+        if (coach?.esquema_comision === 'Porcentaje') {
+          const neto = coach.aplica_iva ? ingresoClase / 1.16 : ingresoClase
+          comisionIns = (neto * (coach.porcentaje_comision || 0)) / insClase.length
+        } else if (coach?.esquema_comision === 'Bono') {
+          comisionIns = (coach.pago_extra_clase || 0)
+        } else if (coach?.esquema_comision === 'Mixto') {
+          const neto = coach.aplica_iva ? ingresoClase / 1.16 : ingresoClase
+          comisionIns = ((i.clases?.tipo === 'Privada' ? coach.tarifa_privada_fija || 0 : 0) + neto * (coach.porcentaje_comision || 0)) / insClase.length
+        }
+
+        rows.push({
+          'Coach': coach?.nombre || '—',
+          'Fecha clase': i.clases?.fecha_inicio || '—',
+          'Horario': i.clases?.hora?.slice(0,5) || '—',
+          'Día': i.clases?.dia || '—',
+          'Tipo': i.clases?.tipo || '—',
+          'Modalidad': i.clases?.modalidad || '—',
+          'Jugador': i.jugadores?.nombre || '—',
+          'Mes cobro': i.mes || '—',
+          'Monto ($)': i.monto_cobrado || 0,
+          'Pagado': i.pagado ? 'Sí' : 'No',
+          'Método pago': i.metodo_pago || '—',
+          'Comisión coach ($)': Math.round(comisionIns),
+        })
+      })
+
+      if (rows.length === 0) { alert('Sin datos para el periodo seleccionado'); setGenerandoExcel(false); return }
+
+      const ws = window.XLSX.utils.json_to_sheet(rows)
+      // Column widths
+      ws['!cols'] = [
+        {wch:20},{wch:14},{wch:10},{wch:12},{wch:14},{wch:14},
+        {wch:24},{wch:12},{wch:12},{wch:8},{wch:16},{wch:16}
+      ]
+
+      const wb = window.XLSX.utils.book_new()
+      const periodo = reporteModo === 'mes' ? reporteMes : `${reporteDesde}_${reporteHasta}`
+      const coachNombre = reporteCoach === 'todos' ? 'todos' : coaches.find(c => c.id === reporteCoach)?.nombre?.replace(/\s/g,'_') || 'coach'
+      window.XLSX.utils.book_append_sheet(wb, ws, 'Reporte')
+      window.XLSX.writeFile(wb, `reporte_${coachNombre}_${periodo}.xlsx`)
+      setGenerandoExcel(false)
+      setModalReporte(false)
+    }
+    cargar()
+  }
+
   return (
     <div style={{ maxWidth: 960 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700 }}>Comisiones</h1>
           <p style={{ color: 'var(--text2)', fontSize: 14, marginTop: 4 }}>Calculadas sobre ingreso teórico · Promo no castiga al coach</p>
-          <button className="btn btn-secondary btn-sm" onClick={() => setModalExport(true)} style={{ marginTop: 8 }}>
-            📄 Exportar PDF
-          </button>
+          <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+            <button className="btn btn-secondary btn-sm" onClick={() => setModalExport(true)}>
+              📄 Exportar PDF
+            </button>
+            <button className="btn btn-secondary btn-sm" onClick={() => setModalReporte(true)}>
+              📊 Reporte Excel
+            </button>
+          </div>
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'flex-end' }}>
@@ -491,6 +589,52 @@ export default function Comisiones() {
       <div style={{ marginTop: 16, padding: '12px 16px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 13, color: 'var(--text2)' }}>
         💡 Las comisiones se calculan únicamente sobre clases pagadas. Promo/Cortesía siempre cuentan. Check-in cuenta cuando el complemento está pagado.
       </div>
+
+      {/* Modal reporte Excel */}
+      {modalReporte && (
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setModalReporte(false)}>
+          <div className="modal" style={{ maxWidth: 440 }}>
+            <h2 className="modal-title">📊 Reporte Excel</h2>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button onClick={() => setReporteModo('mes')} style={{ flex: 1, padding: '7px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 13, background: reporteModo === 'mes' ? 'var(--accent)' : 'var(--bg3)', color: reporteModo === 'mes' ? '#000' : 'var(--text2)', fontWeight: reporteModo === 'mes' ? 600 : 400 }}>Por mes</button>
+                <button onClick={() => setReporteModo('rango')} style={{ flex: 1, padding: '7px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 13, background: reporteModo === 'rango' ? 'var(--accent)' : 'var(--bg3)', color: reporteModo === 'rango' ? '#000' : 'var(--text2)', fontWeight: reporteModo === 'rango' ? 600 : 400 }}>Rango de fechas</button>
+              </div>
+              {reporteModo === 'mes' && (
+                <div className="form-group">
+                  <label className="form-label">Mes</label>
+                  <select className="form-input" value={reporteMes} onChange={e => setReporteMes(e.target.value)} style={{ textTransform: 'capitalize' }}>
+                    {MESES.map(m => <option key={m} value={m} style={{ textTransform: 'capitalize' }}>{m}</option>)}
+                  </select>
+                </div>
+              )}
+              {reporteModo === 'rango' && (
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                  <input className="form-input" type="date" value={reporteDesde} onChange={e => setReporteDesde(e.target.value)} />
+                  <span style={{ color: 'var(--text2)' }}>→</span>
+                  <input className="form-input" type="date" value={reporteHasta} onChange={e => setReporteHasta(e.target.value)} />
+                </div>
+              )}
+              <div className="form-group">
+                <label className="form-label">Coach</label>
+                <select className="form-input" value={reporteCoach} onChange={e => setReporteCoach(e.target.value)}>
+                  <option value="todos">Todos los coaches</option>
+                  {coaches.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                </select>
+              </div>
+              <div style={{ background: 'rgba(0,229,160,.06)', border: '1px solid rgba(0,229,160,.15)', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: 'var(--text2)', lineHeight: 1.7 }}>
+                El reporte incluye: Coach · Fecha · Horario · Día · Tipo · Modalidad · Jugador · Mes cobro · Monto · Pagado · Método pago · Comisión coach
+              </div>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                <button className="btn btn-secondary" onClick={() => setModalReporte(false)}>Cancelar</button>
+                <button className="btn btn-primary" onClick={generarExcel} disabled={generandoExcel}>
+                  {generandoExcel ? 'Generando...' : '⬇️ Descargar Excel'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal exportar */}
       {modalExport && (
