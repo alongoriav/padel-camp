@@ -447,10 +447,11 @@ export default function Comisiones() {
             }
           })
           // Commission
+          // % applies ON total WITH IVA (prices already include IVA)
           let comision = 0, comisionVariable = 0, comisionFija = 0
           if (coach.esquema_comision === 'Porcentaje') {
-            const neto = coach.aplica_iva ? ingreso / 1.16 : ingreso
-            comisionVariable = neto * (coach.porcentaje_comision || 0)
+            // ingreso ya incluye IVA — aplicar % sobre total con IVA
+            comisionVariable = ingreso * (coach.porcentaje_comision || 0)
             comisionFija = coach.sueldo_base || 0
             comision = comisionFija + comisionVariable
           } else if (coach.esquema_comision === 'Bono') {
@@ -461,9 +462,9 @@ export default function Comisiones() {
             comisionVariable = Math.max(0, horas - (coach.clases_base || 0)) * (coach.pago_extra_clase || 0)
             comision = comisionFija + comisionVariable
           } else if (coach.esquema_comision === 'Mixto') {
-            const neto = coach.aplica_iva ? ingreso / 1.16 : ingreso
+            // % sobre total con IVA
             comisionFija = coach.sueldo_base || 0
-            comisionVariable = horas * (coach.tarifa_privada_fija || 0) + neto * (coach.porcentaje_comision || 0)
+            comisionVariable = horas * (coach.tarifa_privada_fija || 0) + ingreso * (coach.porcentaje_comision || 0)
             comision = comisionFija + comisionVariable
           }
           comisionCoachMes[`${coach.id}||${mes}`] = { comision, comisionVariable, comisionFija, ingreso }
@@ -510,21 +511,23 @@ export default function Comisiones() {
         const { comision = 0, ingreso: ingresoTotal = 0, comisionVariable = 0, comisionFija = 0 } = comisionCoachMes[`${g.coachId}||${g.mes}`] || {}
         const proporcion = ingresoTotal > 0 ? g.ingresoBase / ingresoTotal : 0
 
-        // Ingreso breakdown
+        // ── Ingreso breakdown (prices include IVA) ──
         const totalCobrado = g.montoPagado
-        const aplicaIva = coach?.aplica_iva
-        const neto = aplicaIva ? Math.round(totalCobrado / 1.16) : totalCobrado
-        const iva = aplicaIva ? totalCobrado - neto : 0
+        const ingresoNeto = Math.round(totalCobrado / 1.16)
+        const ingresoIva = totalCobrado - ingresoNeto
 
-        // Commission breakdown — proportional
+        // ── Commission breakdown — proportional ──
         const comVarProp = Math.round(comisionVariable * proporcion)
         const comFijaProp = Math.round(comisionFija * proporcion)
         const comTotalProp = comVarProp + comFijaProp
+        // Commission also desglosed with IVA
+        const comTotalNeto = Math.round(comTotalProp / 1.16)
+        const comTotalIva = comTotalProp - comTotalNeto
 
-        // Commission IVA breakdown (coaches bill with IVA on their commission)
-        const comNeto = comTotalProp
-        const comIva = 0  // comisión se paga sin IVA típicamente — ajustar si aplica
-        const comTotal = comNeto
+        const comVarNeto = Math.round(comVarProp / 1.16)
+        const comVarIva = comVarProp - comVarNeto
+        const comFijaNeto = Math.round(comFijaProp / 1.16)
+        const comFijaIva = comFijaProp - comFijaNeto
 
         return {
           'Coach': g.coachNombre,
@@ -535,15 +538,23 @@ export default function Comisiones() {
           'Tipo': [...g.tipos].join(', ') || '—',
           'Modalidad': [...g.modalidades].join(', ') || '—',
           'Clases': g.clases,
-          // Ingreso
-          'Ingreso Neto ($)': neto,
-          'IVA Ingreso ($)': iva,
+          // ── Ingreso ──
+          'Ingreso Subtotal ($)': ingresoNeto,
+          'Ingreso IVA ($)': ingresoIva,
           'Ingreso Total ($)': totalCobrado,
           'Pendiente ($)': g.montoPendiente,
           'Método(s) pago': [...g.metodos].join(', ') || '—',
-          // Comisión
-          'Comisión % Variable ($)': comVarProp,
-          'Sueldo Base Prorrateado ($)': comFijaProp,
+          // ── Comisión Variable (% / extras) ──
+          'Com. Variable Subtotal ($)': comVarNeto,
+          'Com. Variable IVA ($)': comVarIva,
+          'Com. Variable Total ($)': comVarProp,
+          // ── Sueldo Base Prorrateado ──
+          'Base Prorrateado Subtotal ($)': comFijaNeto,
+          'Base Prorrateado IVA ($)': comFijaIva,
+          'Base Prorrateado Total ($)': comFijaProp,
+          // ── Comisión Total ──
+          'Comisión Subtotal ($)': comTotalNeto,
+          'Comisión IVA ($)': comTotalIva,
           'Comisión Total ($)': comTotalProp,
         }
       }).sort((a, b) => a['Coach'].localeCompare(b['Coach']) || a['Jugador'].localeCompare(b['Jugador']))
@@ -553,9 +564,11 @@ export default function Comisiones() {
       const ws = window.XLSX.utils.json_to_sheet(rows)
       // Column widths
       ws['!cols'] = [
-        {wch:22},{wch:12},{wch:24},{wch:18},{wch:14},{wch:14},{wch:14},{wch:8},
-        {wch:16},{wch:14},{wch:16},{wch:14},{wch:18},
-        {wch:20},{wch:24},{wch:18}
+        {wch:22},{wch:12},{wch:24},{wch:16},{wch:14},{wch:14},{wch:14},{wch:8},
+        {wch:20},{wch:16},{wch:16},{wch:14},{wch:18},
+        {wch:22},{wch:18},{wch:22},
+        {wch:24},{wch:20},{wch:24},
+        {wch:20},{wch:16},{wch:18}
       ]
 
       const wb = window.XLSX.utils.book_new()
