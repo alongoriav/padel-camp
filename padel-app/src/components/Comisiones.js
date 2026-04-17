@@ -388,16 +388,28 @@ export default function Comisiones() {
 
     const ejecutar = () => {
       // Filter inscriptions
+      const MESES_IDX = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
       const insReporte = inscripciones.filter(i => {
         const coachId = i.clases?.coach_id
         if (reporteCoach !== 'todos' && coachId !== reporteCoach) return false
         if (reporteModo === 'mes') return i.mes === reporteMes
         if (reporteModo === 'rango') {
-          const fecha = i.clases?.fecha_inicio
-          if (!fecha) return false
-          if (reporteDesde && fecha < reporteDesde) return false
-          if (reporteHasta && fecha > reporteHasta) return false
-          return true
+          // Filter by mes/anio matching the date range
+          const mesIdx = MESES_IDX.indexOf(i.mes)
+          if (mesIdx < 0) return false
+          const anio = i.anio || 2026
+          const fechaMes = `${anio}-${String(mesIdx + 1).padStart(2,'0')}-01`
+          if (reporteDesde && fechaMes < reporteDesde.slice(0,8) + '01') {
+            // Check if month is within range
+            const desdeYM = reporteDesde.slice(0,7)
+            const hastaYM = reporteHasta ? reporteHasta.slice(0,7) : '9999-12'
+            const mesYM = `${anio}-${String(mesIdx + 1).padStart(2,'0')}`
+            return mesYM >= desdeYM && mesYM <= hastaYM
+          }
+          const desdeYM = reporteDesde ? reporteDesde.slice(0,7) : '0000-01'
+          const hastaYM = reporteHasta ? reporteHasta.slice(0,7) : '9999-12'
+          const mesYM = `${anio}-${String(mesIdx + 1).padStart(2,'0')}`
+          return mesYM >= desdeYM && mesYM <= hastaYM
         }
         return true
       })
