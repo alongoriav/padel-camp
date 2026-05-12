@@ -1,18 +1,18 @@
 import { supabase } from '../supabase'
 
 const navItems = [
-  { id: 'dashboard', label: 'Resumen', icon: '📊', adminOnly: false },
-  { id: 'agenda', label: 'Agenda', icon: '📅', adminOnly: false },
-  { id: 'clases', label: 'Clases', icon: '🎾', adminOnly: false },
-  { id: 'jugadores', label: 'Jugadores', icon: '👤', adminOnly: true },
+  { id: 'dashboard', label: 'Resumen', icon: '📊', adminOnly: true },
+  { id: 'agenda', label: 'Agenda', icon: '📅', adminOnly: false, operadorAllowed: true },
+  { id: 'clases', label: 'Clases', icon: '🎾', adminOnly: false, operadorAllowed: true },
+  { id: 'jugadores', label: 'Jugadores', icon: '👤', adminOnly: true, operadorAllowed: true },
   { id: 'coaches', label: 'Coaches', icon: '🏆', adminOnly: true },
   { id: 'comisiones', label: 'Comisiones', icon: '💰', adminOnly: true },
   { id: 'precios', label: 'Precios', icon: '🏷️', adminOnly: true },
-  { id: 'envivo', label: 'En Vivo', icon: '📺', adminOnly: false },
+  { id: 'envivo', label: 'En Vivo', icon: '📺', adminOnly: false, operadorAllowed: true },
 ]
 
-export default function Sidebar({ page, setPage, isAdmin, usuario }) {
-  const items = navItems.filter(i => !i.adminOnly || isAdmin)
+export default function Sidebar({ page, setPage, isAdmin, isOperador, usuario }) {
+  const items = navItems.filter(i => isAdmin || (!i.adminOnly) || (isOperador && i.operadorAllowed))
 
   return (
     <aside style={{
