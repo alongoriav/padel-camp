@@ -8,6 +8,7 @@ const navItems = [
   { id: 'coaches', label: 'Coaches', icon: '🏆', adminOnly: true },
   { id: 'comisiones', label: 'Comisiones', icon: '💰', adminOnly: true },
   { id: 'precios', label: 'Precios', icon: '🏷️', adminOnly: true },
+  { id: 'usuarios', label: 'Usuarios', icon: '🔑', adminOnly: true },
   { id: 'envivo', label: 'En Vivo', icon: '📺', adminOnly: false, operadorAllowed: true },
 ]
 
