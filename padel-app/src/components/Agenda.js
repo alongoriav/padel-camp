@@ -6,7 +6,6 @@ const DIAS_SEMANA = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado',
 const METODOS = ['Efectivo','Tarjeta','Transferencia','Check-in','Pendiente']
 const MODALIDADES = ['Semanal','Clase única','Promo']
 const TIPOS = ['Privada','Compartida']
-
 const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
 
 function getLunes(date) {
@@ -77,6 +76,8 @@ export default function Agenda({ usuario }) {
   const [busqueda, setBusqueda] = useState('')
   const [busquedaDetalle, setBusquedaDetalle] = useState('')
   const [fechaEntradaDetalle, setFechaEntradaDetalle] = useState('')
+  const [modalComision, setModalComision] = useState(null)
+  const [comisionManual, setComisionManual] = useState('')
   const [toast, setToast] = useState('')
   const [modalNuevoJugador, setModalNuevoJugador] = useState(false)
   const [nuevoJugadorNombre, setNuevoJugadorNombre] = useState('')
@@ -125,6 +126,39 @@ export default function Agenda({ usuario }) {
     setNuevoJugadorNombre('')
     setModalNuevoJugador(false)
     showToast(`${nombre} creado y agregado ✓`)
+  }
+
+  const calcComisionAuto = (inscripcion) => {
+    const coach = coaches?.find(c => c.id === detalleClase?.coach_id)
+    if (!coach || !inscripcion.pagado) return 0
+    const mod = detalleClase?.modalidad
+    if (mod === 'Promo' || mod === 'Cortesía') return 0
+    const monto = inscripcion.monto_cobrado || 0
+    if (coach.esquema_comision === 'Porcentaje') return Math.round(monto * (coach.porcentaje_comision || 0))
+    if (coach.esquema_comision === 'Bono') return coach.pago_extra_clase || 0
+    if (coach.esquema_comision === 'Mixto') {
+      if (detalleClase?.tipo === 'Privada') return Math.round(coach.tarifa_privada_fija || 0)
+      return Math.round(monto * (coach.porcentaje_comision || 0))
+    }
+    return 0
+  }
+
+  const guardarComisionManual = async () => {
+    if (!modalComision) return
+    const valor = parseFloat(comisionManual)
+    if (isNaN(valor)) return
+    await supabase.from('inscripciones').update({ comision_override: valor }).eq('id', modalComision.inscripcion.id)
+    setModalComision(null)
+    showToast('Comisión personalizada guardada ✓')
+    const { data } = await supabase.from('inscripciones').select('*, jugadores(nombre)').eq('clase_id', detalleClase.id)
+    setInscripcionesDetalle(data || [])
+  }
+
+  const quitarComisionManual = async (inscripcionId) => {
+    await supabase.from('inscripciones').update({ comision_override: null }).eq('id', inscripcionId)
+    showToast('Comisión restaurada ✓')
+    const { data } = await supabase.from('inscripciones').select('*, jugadores(nombre)').eq('clase_id', detalleClase.id)
+    setInscripcionesDetalle(data || [])
   }
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 3000) }
@@ -392,7 +426,7 @@ export default function Agenda({ usuario }) {
             </div>
 
             <table className="table" style={{ marginBottom: 16 }}>
-              <thead><tr><th>Jugador</th><th>Monto</th><th>Método</th><th>Pago</th></tr></thead>
+              <thead><tr><th>Jugador</th><th>Monto</th><th>Método</th><th>Pago</th><th>Comisión</th></tr></thead>
               <tbody>
                 {inscripcionesDetalle.map(i => (
                   <tr key={i.id}>
@@ -405,6 +439,27 @@ export default function Agenda({ usuario }) {
                         style={{ border: 'none', cursor: 'pointer' }}>
                         {i.pagado ? '✅ Pagado' : '❌ Pendiente'}
                       </button>
+                    </td>
+                    <td>
+                      {(() => {
+                        const comAuto = calcComisionAuto(i)
+                        const comFinal = i.comision_override != null ? i.comision_override : comAuto
+                        const esManual = i.comision_override != null
+                        return (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <span onClick={() => { setComisionManual(String(comFinal)); setModalComision({ inscripcion: i, comisionAuto: comAuto }) }}
+                              title="Clic para personalizar"
+                              style={{ fontFamily: 'var(--mono)', fontSize: 13, cursor: 'pointer',
+                                color: esManual ? 'var(--warn)' : 'var(--text2)', textDecoration: 'underline dotted' }}>
+                              ${comFinal.toLocaleString('es-MX')}{esManual ? ' ✏️' : ''}
+                            </span>
+                            {esManual && (
+                              <button onClick={() => quitarComisionManual(i.id)} title="Restaurar automático"
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: 'var(--text2)' }}>↩</button>
+                            )}
+                          </div>
+                        )
+                      })()}
                     </td>
                   </tr>
                 ))}
@@ -658,6 +713,33 @@ export default function Agenda({ usuario }) {
                 <button className="btn btn-primary" onClick={crearYAgregarJugador} disabled={!nuevoJugadorNombre.trim()}>
                   Crear y agregar
                 </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {modalComision && (
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setModalComision(null)}>
+          <div className="modal" style={{ maxWidth: 400 }}>
+            <h2 className="modal-title">Comisión personalizada</h2>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div style={{ background: 'rgba(255,165,2,.08)', border: '1px solid rgba(255,165,2,.2)', borderRadius: 8, padding: '10px 14px', fontSize: 13 }}>
+                <div style={{ color: 'var(--text2)', marginBottom: 4 }}>Jugador: <strong style={{ color: 'var(--text)' }}>{modalComision.inscripcion.jugadores?.nombre}</strong></div>
+                <div style={{ color: 'var(--text2)' }}>Comisión automática: <strong style={{ color: 'var(--accent)', fontFamily: 'var(--mono)' }}>${modalComision.comisionAuto.toLocaleString('es-MX')}</strong></div>
+              </div>
+              <div style={{ fontSize: 13, color: 'var(--text2)', lineHeight: 1.6 }}>
+                ¿Deseas establecer una comisión personalizada para <strong style={{ color: 'var(--text)' }}>{modalComision.inscripcion.jugadores?.nombre}</strong>? Esto no afectará el cálculo de los demás jugadores.
+              </div>
+              <div className="form-group">
+                <label className="form-label">Monto de comisión ($)</label>
+                <input className="form-input" type="number" min="0" value={comisionManual}
+                  onChange={e => setComisionManual(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && guardarComisionManual()}
+                  autoFocus />
+              </div>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                <button className="btn btn-secondary" onClick={() => setModalComision(null)}>Cancelar</button>
+                <button className="btn btn-primary" onClick={guardarComisionManual}>Confirmar</button>
               </div>
             </div>
           </div>
