@@ -63,37 +63,15 @@ function calcMontoProporcional(montoBase, fechaEntrada, fechaInicio, clasesTotal
 }
 
 export default function Agenda({ usuario }) {
+  const isAdmin = usuario?.rol === 'admin' || usuario?.rol === 'operador'
   const [semana, setSemana] = useState(getLunes(new Date()))
   const [clases, setClases] = useState([])
   const [coaches, setCoaches] = useState([])
   const [jugadores, setJugadores] = useState([])
   const [coachFilter, setCoachFilter] = useState('')
-  const [detalleClase, setDetalleClase] = useState(null)
-  const [inscripcionesDetalle, setInscripcionesDetalle] = useState([])
-  const [modalNueva, setModalNueva] = useState(false)
-  const [formNueva, setFormNueva] = useState({})
-  const [fechasNueva, setFechasNueva] = useState([])
-  const [jugadoresClase, setJugadoresClase] = useState([])
-  const [busqueda, setBusqueda] = useState('')
-  const [busquedaDetalle, setBusquedaDetalle] = useState('')
-  const [fechaEntradaDetalle, setFechaEntradaDetalle] = useState('')
-  const [modalComision, setModalComision] = useState(null)
-  const [comisionManual, setComisionManual] = useState('')
+  const [modalClaseId, setModalClaseId] = useState(null)
+  const [modalInitialForm, setModalInitialForm] = useState(null)
   const [toast, setToast] = useState('')
-  const [modalNuevoJugador, setModalNuevoJugador] = useState(false)
-  const [nuevoJugadorNombre, setNuevoJugadorNombre] = useState('')
-  const [nuevoJugadorDesde, setNuevoJugadorDesde] = useState('clase')
-  const isAdmin = usuario?.rol === 'admin'
-
-  useEffect(() => { fetchData() }, [semana, coachFilter])
-
-  useEffect(() => {
-    if (formNueva.modalidad === 'Semanal' && formNueva.dia && formNueva.fecha_inicio) {
-      const fs = calcFechas(formNueva.dia, formNueva.fecha_inicio)
-      setFechasNueva(fs)
-      if (fs.length > 0) setFormNueva(f => ({ ...f, fecha_fin: fs[fs.length-1].toISOString().split('T')[0] }))
-    }
-  }, [formNueva.dia, formNueva.fecha_inicio, formNueva.modalidad])
 
   const fetchData = async () => {
     const lunes = semana.toISOString().split('T')[0]
@@ -110,56 +88,6 @@ export default function Agenda({ usuario }) {
     if (!isAdmin && usuario?.coach_id) filtradas = filtradas.filter(c => c.coach_id === usuario.coach_id)
     if (coachFilter) filtradas = filtradas.filter(c => c.coach_id === coachFilter)
     setClases(filtradas)
-  }
-
-  const crearYAgregarJugador = async () => {
-    if (!nuevoJugadorNombre.trim()) return
-    const nombre = nuevoJugadorNombre.trim().split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ')
-    const { data } = await supabase.from('jugadores').insert({ nombre, activo: true }).select().single()
-    if (!data) { showToast('Error al crear jugador'); return }
-    const { data: js } = await supabase.from('jugadores').select('*').eq('activo', true).order('nombre')
-    setJugadores(js || [])
-    if (nuevoJugadorDesde === 'clase') {
-      setJugadoresClase(prev => [...prev, { jugador_id: data.id, nombre: data.nombre, metodo: 'Efectivo', pagado: false }])
-    } else if (detalleClase) {
-      await agregarJugadorDetalle(data)
-    }
-    setNuevoJugadorNombre('')
-    setModalNuevoJugador(false)
-    showToast(`${nombre} creado y agregado ✓`)
-  }
-
-  const calcComisionAuto = (inscripcion) => {
-    const coach = coaches?.find(c => c.id === detalleClase?.coach_id)
-    if (!coach || !inscripcion.pagado) return 0
-    const mod = detalleClase?.modalidad
-    if (mod === 'Promo' || mod === 'Cortesía') return 0
-    const monto = inscripcion.monto_cobrado || 0
-    if (coach.esquema_comision === 'Porcentaje') return Math.round(monto * (coach.porcentaje_comision || 0))
-    if (coach.esquema_comision === 'Bono') return coach.pago_extra_clase || 0
-    if (coach.esquema_comision === 'Mixto') {
-      if (detalleClase?.tipo === 'Privada') return Math.round(coach.tarifa_privada_fija || 0)
-      return Math.round(monto * (coach.porcentaje_comision || 0))
-    }
-    return 0
-  }
-
-  const guardarComisionManual = async () => {
-    if (!modalComision) return
-    const valor = parseFloat(comisionManual)
-    if (isNaN(valor)) return
-    await supabase.from('inscripciones').update({ comision_override: valor }).eq('id', modalComision.inscripcion.id)
-    setModalComision(null)
-    showToast('Comisión personalizada guardada ✓')
-    const { data } = await supabase.from('inscripciones').select('*, jugadores(nombre)').eq('clase_id', detalleClase.id)
-    setInscripcionesDetalle(data || [])
-  }
-
-  const quitarComisionManual = async (inscripcionId) => {
-    await supabase.from('inscripciones').update({ comision_override: null }).eq('id', inscripcionId)
-    showToast('Comisión restaurada ✓')
-    const { data } = await supabase.from('inscripciones').select('*, jugadores(nombre)').eq('clase_id', detalleClase.id)
-    setInscripcionesDetalle(data || [])
   }
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 3000) }
@@ -185,12 +113,6 @@ export default function Agenda({ usuario }) {
     })
   }
 
-  const abrirDetalle = async (c) => {
-    setDetalleClase(c)
-    const { data } = await supabase.from('inscripciones').select('*, jugadores(nombre), clases(fecha_inicio, clases_en_rango, modalidad, tipo)').eq('clase_id', c.id)
-    setInscripcionesDetalle(data || [])
-    setBusquedaDetalle('')
-  }
 
   const abrirNueva = (dia, hora, fecha) => {
     if (!isAdmin) return
@@ -207,94 +129,10 @@ export default function Agenda({ usuario }) {
     setModalClaseId('new')
   }
 
-  const togglePago = async (ins) => {
-    const ahora = new Date().toISOString().split('T')[0]
-    const update = ins.pagado 
-      ? { pagado: false, fecha_pago: null }
-      : { pagado: true, fecha_pago: ahora }
-    await supabase.from('inscripciones').update(update).eq('id', ins.id)
-    const { data } = await supabase.from('inscripciones').select('*, jugadores(nombre)').eq('clase_id', detalleClase.id)
-    setInscripcionesDetalle(data || [])
-    fetchData()
-  }
 
-  const eliminarClase = async (claseId) => {
-    if (!window.confirm('¿Eliminar esta clase y todas sus inscripciones? Esta acción no se puede deshacer.')) return
-    await supabase.from('inscripciones').delete().eq('clase_id', claseId)
-    await supabase.from('clases').delete().eq('id', claseId)
-    setDetalleClase(null)
-    showToast('Clase eliminada ✓')
-    fetchData()
-  }
 
-  const agregarJugadorDetalle = async (j) => {
-    const nuevosParticipantes = inscripcionesDetalle.length + 1
-    const montoBase = calcMonto(detalleClase.modalidad, nuevosParticipantes, detalleClase.clases_en_rango || 1)
-    const montoAnterior = calcMonto(detalleClase.modalidad, inscripcionesDetalle.length, detalleClase.clases_en_rango || 1)
-    const saldoFavor = montoAnterior - montoBase
-    const montoFinal = fechaEntradaDetalle && detalleClase.fecha_inicio
-      ? calcMontoProporcional(montoBase, fechaEntradaDetalle, detalleClase.fecha_inicio, detalleClase.clases_en_rango || 1)
-      : montoBase
-    await supabase.from('inscripciones').insert({
-      clase_id: detalleClase.id, jugador_id: j.id,
-      metodo_pago: 'Pendiente', pagado: false,
-      monto_cobrado: montoFinal,
-      mes: inscripcionesDetalle[0]?.mes || MESES[new Date().getMonth()],
-      anio: 2026,
-      fecha_entrada: fechaEntradaDetalle || null,
-    })
-    setBusquedaDetalle('')
-    setFechaEntradaDetalle('')
-    const msg = saldoFavor > 0
-      ? `${j.nombre} agregado ✓ · Saldo a favor existentes: $${saldoFavor.toLocaleString('es-MX')} c/u`
-      : `${j.nombre} agregado ✓`
-    showToast(msg)
-    const { data } = await supabase.from('inscripciones').select('*, jugadores(nombre)').eq('clase_id', detalleClase.id)
-    setInscripcionesDetalle(data || [])
-    fetchData()
-  }
 
-  const busquedaTrimmed = busqueda.trim()
-  const jugadoresFiltrados = jugadores.filter(j =>
-    (busquedaTrimmed === '' || j.nombre.toLowerCase().includes(busquedaTrimmed.toLowerCase())) &&
-    !jugadoresClase.find(jc => jc.jugador_id === j.id)
-  )
 
-  const busquedaDetalleTrimmed = busquedaDetalle.trim()
-  const jugadoresDisponiblesDetalle = jugadores.filter(j =>
-    (busquedaDetalleTrimmed === '' || j.nombre.toLowerCase().includes(busquedaDetalleTrimmed.toLowerCase())) &&
-    !inscripcionesDetalle.find(i => i.jugador_id === j.id)
-  )
-
-  const participantes = jugadoresClase.length || 1
-  const numClases = formNueva.modalidad === 'Semanal' ? fechasNueva.length : 1
-  const montoPorJugador = calcMonto(formNueva.modalidad, participantes, numClases)
-
-  const guardarNueva = async () => {
-    if (!formNueva.coach_id || jugadoresClase.length === 0 || !formNueva.fecha_inicio) return
-    const { data: claseData } = await supabase.from('clases').insert({
-      coach_id: formNueva.coach_id, tipo: formNueva.tipo, modalidad: formNueva.modalidad,
-      dia: (formNueva.modalidad === 'Semanal' || formNueva.modalidad === 'Promo') && formNueva.dia ? formNueva.dia : null,
-      hora: formNueva.hora + ':00',
-      fecha_inicio: formNueva.fecha_inicio,
-      fecha_fin: formNueva.modalidad === 'Semanal' ? formNueva.fecha_fin : formNueva.fecha_inicio,
-      // For Promo with dia, keep the dia so it shows on agenda weekly view
-      activo: true,
-    }).select().single()
-    if (!claseData) { showToast('Error al guardar'); return }
-    await supabase.from('inscripciones').insert(jugadoresClase.map(j => {
-      const montoFinal = j._montoProporcional != null ? j._montoProporcional : montoPorJugador
-      return {
-        clase_id: claseData.id, jugador_id: j.jugador_id,
-        metodo_pago: j.metodo, pagado: j.pagado,
-        monto_cobrado: montoFinal, mes: formNueva.mes, anio: formNueva.anio,
-        fecha_entrada: j.fecha_entrada || null,
-      }
-    }))
-    showToast('Clase creada ✓')
-    setModalNueva(false)
-    fetchData()
-  }
 
   const fmtFecha = (d) => d.toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })
 
@@ -404,126 +242,6 @@ export default function Agenda({ usuario }) {
       </div>
 
       {/* Modal detalle clase */}
-      {detalleClase && (
-        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setDetalleClase(null)}>
-          <div className="modal" style={{ maxWidth: 560 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
-              <div>
-                <h2 style={{ fontSize: 18, fontWeight: 700 }}>{detalleClase.coaches?.nombre}</h2>
-                <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
-                  <span className={`badge ${detalleClase.tipo === 'Privada' ? 'badge-blue' : 'badge-yellow'}`}>{detalleClase.tipo}</span>
-                  <span className={`badge ${detalleClase.modalidad === 'Semanal' ? 'badge-green' : 'badge-gray'}`}>{detalleClase.modalidad}</span>
-                  {detalleClase.dia && <span style={{ fontSize: 13, color: 'var(--text2)' }}>📅 {detalleClase.dia}</span>}
-                  <span style={{ fontSize: 13, color: 'var(--text2)', fontFamily: 'var(--mono)' }}>🕐 {detalleClase.hora?.slice(0,5)}</span>
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button className="btn btn-sm" onClick={() => eliminarClase(detalleClase.id)}
-                  style={{ background: 'rgba(255,59,48,.15)', border: '1px solid rgba(255,59,48,.3)', color: 'var(--danger)', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', fontSize: 13 }}>
-                  🗑 Eliminar clase
-                </button>
-                <button className="btn btn-secondary btn-sm" onClick={() => setDetalleClase(null)}>Cerrar</button>
-              </div>
-            </div>
-
-            <table className="table" style={{ marginBottom: 16 }}>
-              <thead><tr><th>Jugador</th><th>Monto</th><th>Método</th><th>Pago</th><th>Comisión</th></tr></thead>
-              <tbody>
-                {inscripcionesDetalle.map(i => (
-                  <tr key={i.id}>
-                    <td style={{ fontWeight: 500 }}>{i.jugadores?.nombre}</td>
-                    <td style={{ fontFamily: 'var(--mono)', fontSize: 13 }}>${i.monto_cobrado?.toLocaleString('es-MX')}</td>
-                    <td style={{ fontSize: 13 }}>{i.metodo_pago}</td>
-                    <td>
-                      <button onClick={() => togglePago(i)}
-                        className={`badge ${i.pagado ? 'badge-green' : 'badge-red'}`}
-                        style={{ border: 'none', cursor: 'pointer' }}>
-                        {i.pagado ? '✅ Pagado' : '❌ Pendiente'}
-                      </button>
-                    </td>
-                    <td>
-                      {(() => {
-                        const comAuto = calcComisionAuto(i)
-                        const comFinal = i.comision_override != null ? i.comision_override : comAuto
-                        const esManual = i.comision_override != null
-                        return (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                            <span onClick={() => { setComisionManual(String(comFinal)); setModalComision({ inscripcion: i, comisionAuto: comAuto }) }}
-                              title="Clic para personalizar"
-                              style={{ fontFamily: 'var(--mono)', fontSize: 13, cursor: 'pointer',
-                                color: esManual ? 'var(--warn)' : 'var(--text2)', textDecoration: 'underline dotted' }}>
-                              ${comFinal.toLocaleString('es-MX')}{esManual ? ' ✏️' : ''}
-                            </span>
-                            {esManual && (
-                              <button onClick={() => quitarComisionManual(i.id)} title="Restaurar automático"
-                                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: 'var(--text2)' }}>↩</button>
-                            )}
-                          </div>
-                        )
-                      })()}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-
-            {isAdmin && (
-              <div style={{ borderTop: '1px solid var(--border)', paddingTop: 14 }}>
-                {detalleClase?.tipo === 'Compartida' && inscripcionesDetalle.length > 0 && (() => {
-                  const montoActual = calcMonto(detalleClase.modalidad, inscripcionesDetalle.length, detalleClase.clases_en_rango || 1)
-                  const montoConUno = calcMonto(detalleClase.modalidad, inscripcionesDetalle.length + 1, detalleClase.clases_en_rango || 1)
-                  const saldo = montoActual - montoConUno
-                  return saldo > 0 ? (
-                    <div style={{ background: 'rgba(255,165,2,.08)', border: '1px solid rgba(255,165,2,.2)', borderRadius: 8, padding: '8px 12px', fontSize: 12, color: 'var(--warn)', marginBottom: 10 }}>
-                      💡 Al agregar un jugador el precio baja a ${montoConUno.toLocaleString('es-MX')} c/u · Saldo a favor actuales: <strong>${saldo.toLocaleString('es-MX')} c/u</strong>
-                    </div>
-                  ) : null
-                })()}
-                {detalleClase?.tipo === 'Compartida' && (
-                  <div style={{ marginBottom: 10 }}>
-                    <label style={{ fontSize: 11, color: 'var(--text2)', display: 'block', marginBottom: 4 }}>
-                      📅 Fecha de entrada del nuevo jugador <span style={{ fontStyle: 'italic' }}>(opcional — vacío = desde inicio)</span>
-                    </label>
-                    <input type="date" value={fechaEntradaDetalle}
-                      onChange={e => setFechaEntradaDetalle(e.target.value)}
-                      style={{ background: 'var(--bg3)', border: `1px solid ${fechaEntradaDetalle ? 'rgba(255,59,48,.5)' : 'var(--border)'}`, borderRadius: 8, padding: '7px 10px', fontSize: 13, color: 'var(--text)', width: '100%' }} />
-                    {fechaEntradaDetalle && detalleClase?.fecha_inicio && (
-                      <div style={{ marginTop: 6, background: 'rgba(255,165,2,.1)', border: '1px solid rgba(255,165,2,.3)', borderRadius: 8, padding: '6px 10px', fontSize: 12 }}>
-                        <span style={{ color: 'var(--text2)' }}>Monto proporcional: </span>
-                        <strong style={{ color: 'var(--warn)', fontFamily: 'var(--mono)' }}>
-                          ${calcMontoProporcional(
-                            calcMonto(detalleClase.modalidad, inscripcionesDetalle.length + 1, detalleClase.clases_en_rango || 1),
-                            fechaEntradaDetalle, detalleClase.fecha_inicio, detalleClase.clases_en_rango || 1
-                          ).toLocaleString('es-MX')}
-                        </strong>
-                      </div>
-                    )}
-                  </div>
-                )}
-                <label className="form-label" style={{ marginBottom: 8, display: 'block' }}>Agregar jugador al grupo</label>
-                <div style={{ position: 'relative' }}>
-                  <input className="form-input" placeholder="Buscar jugador..."
-                    value={busquedaDetalle} onChange={e => setBusquedaDetalle(e.target.value)} />
-                  {busquedaDetalle.length > 0 && jugadoresDisponiblesDetalle.length > 0 && (
-                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10, background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 8, maxHeight: 180, overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,.4)' }}>
-                      {jugadoresDisponiblesDetalle.slice(0, 6).map(j => (
-                        <div key={j.id} onClick={() => agregarJugadorDetalle(j)}
-                          style={{ padding: '10px 14px', cursor: 'pointer', fontSize: 14, borderBottom: '1px solid var(--border)' }}
-                          onMouseEnter={e => e.currentTarget.style.background = 'var(--border)'}
-                          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                          + {j.nombre}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Modal nueva clase desde agenda */}
       {modalClaseId && (
         <ModalClase
           claseId={modalClaseId === 'new' ? null : modalClaseId}
