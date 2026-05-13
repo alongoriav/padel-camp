@@ -538,6 +538,3 @@ export default function Agenda({ usuario }) {
     </div>
   )
 }
-    </div>
-  )
-}
