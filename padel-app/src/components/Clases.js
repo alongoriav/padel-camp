@@ -120,7 +120,6 @@ export default function Clases({ usuario }) {
   const [modalComision, setModalComision] = useState(null)
   const [comisionManual, setComisionManual] = useState('')
   const [montoManual, setMontoManual] = useState('')
-  const [montoManual, setMontoManual] = useState('')
   const [modalNuevoJugador, setModalNuevoJugador] = useState(false)
   const [nuevoJugadorNombre, setNuevoJugadorNombre] = useState('')
   const [nuevoJugadorDesde, setNuevoJugadorDesde] = useState('clase') // 'clase' or 'detalle'
