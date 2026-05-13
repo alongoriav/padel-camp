@@ -136,7 +136,7 @@ export default function Agenda({ usuario }) {
     setFormNueva({
       coach_id: clase.coach_id,
       tipo: clase.tipo,
-      modalidad: clase.modalidad,
+      modalidad: clase.modalidad === 'Promo' ? 'Semanal' : clase.modalidad,
       dia: clase.dia || 'Lunes',
       hora: clase.hora?.slice(0,5) || '09:00',
       fecha_inicio: clase.fecha_inicio || '',
@@ -145,10 +145,11 @@ export default function Agenda({ usuario }) {
     })
     setJugadoresClase(ins.map(i => ({
       jugador_id: i.jugador_id,
-      nombre: i.jugadores?.nombre || '',
-      metodo: i.metodo_pago || 'Efectivo',
+      nombre: i.jugadores?.nombre || jugadores.find(j => j.id === i.jugador_id)?.nombre || '',
+      metodo: i.metodo_pago === 'Promo' ? 'Efectivo' : (i.metodo_pago || 'Efectivo'),
       pagado: i.pagado || false,
       fecha_entrada: i.fecha_entrada || '',
+      esPromo: i.metodo_pago === 'Promo' || i.monto_cobrado === 0,
     })))
     setEditClaseId(clase.id)
     setEditMode(true)
@@ -157,15 +158,14 @@ export default function Agenda({ usuario }) {
   }
 
   const editarClase = async () => {
-    if (!detalleClase && editMode) return
-    const claseId = editMode ? editClaseId : null
-    if (!claseId) return
+    const claseId = editClaseId
+    if (!claseId) { showToast('Error: no hay clase seleccionada'); return }
     const fechas = formNueva.modalidad === 'Semanal' ? calcFechas(formNueva.dia, formNueva.fecha_inicio) : [formNueva.fecha_inicio]
     await supabase.from('clases').update({
       coach_id: formNueva.coach_id,
       tipo: formNueva.tipo,
       modalidad: formNueva.modalidad,
-      dia: (formNueva.modalidad === 'Semanal' || formNueva.modalidad === 'Promo') && formNueva.dia ? formNueva.dia : null,
+      dia: formNueva.modalidad === 'Semanal' && formNueva.dia ? formNueva.dia : null,
       hora: formNueva.hora + ':00',
       fecha_inicio: formNueva.fecha_inicio,
       fecha_fin: formNueva.modalidad === 'Semanal' ? fechas[fechas.length-1]?.toISOString().split('T')[0] : formNueva.fecha_inicio,
@@ -174,8 +174,8 @@ export default function Agenda({ usuario }) {
     for (const j of jugadoresClase) {
       if (j.jugador_id) {
         await supabase.from('inscripciones').update({
-          metodo_pago: j.metodo,
-          pagado: j.pagado,
+          metodo_pago: j.esPromo ? 'Promo' : j.metodo,
+          pagado: j.esPromo ? true : j.pagado,
           mes: formNueva.mes,
           anio: formNueva.anio,
           fecha_entrada: j.fecha_entrada || null,
@@ -184,16 +184,18 @@ export default function Agenda({ usuario }) {
     }
     setModalNueva(false)
     setEditMode(false)
+    setEditClaseId(null)
     showToast('Clase actualizada ✓')
     fetchData()
   }
 
   const calcComisionAuto = (inscripcion) => {
     const coach = coaches?.find(c => c.id === detalleClase?.coach_id)
-    if (!coach || !inscripcion.pagado) return 0
-    const mod = detalleClase?.modalidad
-    if (mod === 'Promo' || mod === 'Cortesía') return 0
-    const monto = inscripcion.monto_cobrado || 0
+    if (!coach) return 0
+    const mod = inscripcion.metodo_pago === 'Promo' ? 'Promo' : (detalleClase?.modalidad)
+    // Promo counts for commission at theoretical price
+    const monto = mod === 'Promo' ? (calcMonto('Semanal', inscripcionesDetalle.length, detalleClase?.clases_en_rango || 1)) : (inscripcion.monto_cobrado || 0)
+    if (!inscripcion.pagado && mod !== 'Promo') return 0
     if (coach.esquema_comision === 'Porcentaje') return Math.round(monto * (coach.porcentaje_comision || 0))
     if (coach.esquema_comision === 'Bono') return coach.pago_extra_clase || 0
     if (coach.esquema_comision === 'Mixto') {
