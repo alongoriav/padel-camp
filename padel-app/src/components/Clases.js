@@ -134,14 +134,9 @@ export default function Clases({ usuario }) {
   const [montoManual, setMontoManual] = useState('')
   const [editMode, setEditMode] = useState(false)
   const [editClaseId, setEditClaseId] = useState(null)
-  const [fechaEntradaDetalle, setFechaEntradaDetalle] = useState('')
-  const [editandoHora, setEditandoHora] = useState(false)
-  const [nuevaHora, setNuevaHora] = useState('')
-  const [modalComision, setModalComision] = useState(null)
-  const [comisionManual, setComisionManual] = useState('')
   const [modalNuevoJugador, setModalNuevoJugador] = useState(false)
   const [nuevoJugadorNombre, setNuevoJugadorNombre] = useState('')
-  const [nuevoJugadorDesde, setNuevoJugadorDesde] = useState('clase') // 'clase' or 'detalle'
+  const [nuevoJugadorDesde, setNuevoJugadorDesde] = useState('clase')
   const isAdmin = usuario?.rol === 'admin'
 
   useEffect(() => { fetchAll() }, [])
