@@ -50,20 +50,6 @@ function calcMontoProporcional(montoBase, fechaEntrada, fechaInicio, clasesTotal
   return Math.round(montoBase * proporcion)
 }
 
-function calcComisionAuto(inscripcion, coaches) {
-  const coach = coaches?.find(c => c.id === inscripcion.clases?.coach_id)
-  if (!coach || !inscripcion.pagado) return 0
-  const mod = inscripcion.clases?.modalidad
-  if (mod === 'Promo' || mod === 'Cortesía') return 0
-  const monto = inscripcion.monto_cobrado || 0
-  if (coach.esquema_comision === 'Porcentaje') return Math.round(monto * (coach.porcentaje_comision || 0))
-  if (coach.esquema_comision === 'Bono') return coach.pago_extra_clase || 0
-  if (coach.esquema_comision === 'Mixto') {
-    if (inscripcion.clases?.tipo === 'Privada') return Math.round(coach.tarifa_privada_fija || 0)
-    return Math.round(monto * (coach.porcentaje_comision || 0))
-  }
-  return 0
-}
 
 const MESES_IDX = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
 
