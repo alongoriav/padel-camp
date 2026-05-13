@@ -78,7 +78,7 @@ export default function Agenda({ usuario }) {
     const domingo = addDays(semana, 6).toISOString().split('T')[0]
     const [{ data: cs }, { data: cl }, { data: js }] = await Promise.all([
       supabase.from('coaches').select('*').eq('activo', true).order('nombre'),
-      supabase.from('clases').select('*, coaches(nombre), inscripciones(*, jugadores(nombre))').eq('activo', true)
+      supabase.from('clases').select('*, coaches(nombre), inscripciones(*, jugadores(nombre))')
         .or(`and(modalidad.eq.Semanal,fecha_inicio.lte.${domingo},fecha_fin.gte.${lunes}),and(modalidad.eq.Promo,fecha_inicio.lte.${domingo},fecha_fin.gte.${lunes}),and(modalidad.eq.Cortesía,fecha_inicio.lte.${domingo},fecha_fin.gte.${lunes}),and(modalidad.eq.Clase única,fecha_inicio.gte.${lunes},fecha_inicio.lte.${domingo})`),
       supabase.from('jugadores').select('*').eq('activo', true).order('nombre'),
     ])
