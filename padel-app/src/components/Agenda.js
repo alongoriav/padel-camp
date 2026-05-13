@@ -189,20 +189,30 @@ export default function Agenda({ usuario }) {
     fetchData()
   }
 
+  const MESES_IDX_A = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
   const calcComisionAuto = (inscripcion) => {
     const coach = coaches?.find(c => c.id === detalleClase?.coach_id)
     if (!coach) return 0
-    const mod = inscripcion.metodo_pago === 'Promo' ? 'Promo' : (detalleClase?.modalidad)
-    // Promo counts for commission at theoretical price
-    const monto = mod === 'Promo' ? (calcMonto('Semanal', inscripcionesDetalle.length, detalleClase?.clases_en_rango || 1)) : (inscripcion.monto_cobrado || 0)
-    if (!inscripcion.pagado && mod !== 'Promo') return 0
-    if (coach.esquema_comision === 'Porcentaje') return Math.round(monto * (coach.porcentaje_comision || 0))
-    if (coach.esquema_comision === 'Bono') return coach.pago_extra_clase || 0
-    if (coach.esquema_comision === 'Mixto') {
-      if (detalleClase?.tipo === 'Privada') return Math.round(coach.tarifa_privada_fija || 0)
-      return Math.round(monto * (coach.porcentaje_comision || 0))
+    const esPromo = inscripcion.metodo_pago === 'Promo'
+    const monto = esPromo
+      ? calcMonto('Semanal', inscripcionesDetalle.length, detalleClase?.clases_en_rango || 1)
+      : (inscripcion.monto_cobrado || 0)
+    if (!inscripcion.pagado && !esPromo) return 0
+    // Promo desde mayo 2026: solo 50% de comisión
+    let factorPromo = 1
+    if (esPromo) {
+      const mesIdx = MESES_IDX_A.indexOf((inscripcion.mes || '').toLowerCase())
+      const anio = inscripcion.anio || 2026
+      factorPromo = (anio > 2026 || (anio === 2026 && mesIdx >= 4)) ? 0.5 : 1
     }
-    return 0
+    let comision = 0
+    if (coach.esquema_comision === 'Porcentaje') comision = Math.round(monto * (coach.porcentaje_comision || 0))
+    else if (coach.esquema_comision === 'Bono') comision = coach.pago_extra_clase || 0
+    else if (coach.esquema_comision === 'Mixto') {
+      if (detalleClase?.tipo === 'Privada') comision = Math.round(coach.tarifa_privada_fija || 0)
+      else comision = Math.round(monto * (coach.porcentaje_comision || 0))
+    }
+    return Math.round(comision * (esPromo ? factorPromo : 1))
   }
 
   const guardarComisionManual = async () => {
