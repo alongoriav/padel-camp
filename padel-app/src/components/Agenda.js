@@ -75,6 +75,8 @@ export default function Agenda({ usuario }) {
   const [jugadoresClase, setJugadoresClase] = useState([])
   const [busqueda, setBusqueda] = useState('')
   const [busquedaDetalle, setBusquedaDetalle] = useState('')
+  const [editMode, setEditMode] = useState(false)
+  const [editClaseId, setEditClaseId] = useState(null)
   const [fechaEntradaDetalle, setFechaEntradaDetalle] = useState('')
   const [modalComision, setModalComision] = useState(null)
   const [comisionManual, setComisionManual] = useState('')
@@ -127,6 +129,63 @@ export default function Agenda({ usuario }) {
     setNuevoJugadorNombre('')
     setModalNuevoJugador(false)
     showToast(`${nombre} creado y agregado ✓`)
+  }
+
+  const abrirEdicion = (clase) => {
+    const ins = inscripcionesDetalle
+    setFormNueva({
+      coach_id: clase.coach_id,
+      tipo: clase.tipo,
+      modalidad: clase.modalidad,
+      dia: clase.dia || 'Lunes',
+      hora: clase.hora?.slice(0,5) || '09:00',
+      fecha_inicio: clase.fecha_inicio || '',
+      mes: ins[0]?.mes || MESES[new Date().getMonth()],
+      anio: ins[0]?.anio || new Date().getFullYear(),
+    })
+    setJugadoresClase(ins.map(i => ({
+      jugador_id: i.jugador_id,
+      nombre: i.jugadores?.nombre || '',
+      metodo: i.metodo_pago || 'Efectivo',
+      pagado: i.pagado || false,
+      fecha_entrada: i.fecha_entrada || '',
+    })))
+    setEditClaseId(clase.id)
+    setEditMode(true)
+    setDetalleClase(null)
+    setModalNueva(true)
+  }
+
+  const editarClase = async () => {
+    if (!detalleClase && editMode) return
+    const claseId = editMode ? editClaseId : null
+    if (!claseId) return
+    const fechas = formNueva.modalidad === 'Semanal' ? calcFechas(formNueva.dia, formNueva.fecha_inicio) : [formNueva.fecha_inicio]
+    await supabase.from('clases').update({
+      coach_id: formNueva.coach_id,
+      tipo: formNueva.tipo,
+      modalidad: formNueva.modalidad,
+      dia: (formNueva.modalidad === 'Semanal' || formNueva.modalidad === 'Promo') && formNueva.dia ? formNueva.dia : null,
+      hora: formNueva.hora + ':00',
+      fecha_inicio: formNueva.fecha_inicio,
+      fecha_fin: formNueva.modalidad === 'Semanal' ? fechas[fechas.length-1]?.toISOString().split('T')[0] : formNueva.fecha_inicio,
+      clases_en_rango: fechas.length,
+    }).eq('id', claseId)
+    for (const j of jugadoresClase) {
+      if (j.jugador_id) {
+        await supabase.from('inscripciones').update({
+          metodo_pago: j.metodo,
+          pagado: j.pagado,
+          mes: formNueva.mes,
+          anio: formNueva.anio,
+          fecha_entrada: j.fecha_entrada || null,
+        }).eq('clase_id', claseId).eq('jugador_id', j.jugador_id)
+      }
+    }
+    setModalNueva(false)
+    setEditMode(false)
+    showToast('Clase actualizada ✓')
+    fetchData()
   }
 
   const calcComisionAuto = (inscripcion) => {
@@ -421,6 +480,10 @@ export default function Agenda({ usuario }) {
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn btn-sm" onClick={() => abrirEdicion(detalleClase)}
+                  style={{ background: 'rgba(0,229,160,.1)', border: '1px solid rgba(0,229,160,.3)', color: 'var(--accent)', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+                  ✏️ Editar clase
+                </button>
                 <button className="btn btn-sm" onClick={() => eliminarClase(detalleClase.id)}
                   style={{ background: 'rgba(255,59,48,.15)', border: '1px solid rgba(255,59,48,.3)', color: 'var(--danger)', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', fontSize: 13 }}>
                   🗑 Eliminar clase
@@ -692,8 +755,9 @@ export default function Agenda({ usuario }) {
               <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 4 }}>
                 <button className="btn btn-secondary" onClick={() => setModalNueva(false)}>Cancelar</button>
                 <button className="btn btn-primary" onClick={guardarNueva}
-                  disabled={!formNueva.coach_id || jugadoresClase.length === 0}>
-                  Crear clase
+                  disabled={!formNueva.coach_id || jugadoresClase.length === 0}
+                  onClick={editMode ? editarClase : guardarNueva}>
+                  {editMode ? '💾 Guardar cambios' : 'Crear clase'}
                 </button>
               </div>
             </div>
