@@ -50,23 +50,32 @@ function calcMontoProporcional(montoBase, fechaEntrada, fechaInicio, clasesTotal
   return Math.round(montoBase * proporcion)
 }
 
+const MESES_IDX = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
+
 function calcComisionAuto(inscripcion, coaches, detalle) {
-  // Get coach from inscripcion join or from detalle
   const coachId = inscripcion.clases?.coach_id || detalle?.coach_id
   const coach = coaches?.find(c => c.id === coachId)
   if (!coach) return 0
   const esPromo = inscripcion.metodo_pago === 'Promo' || inscripcion.monto_cobrado === 0
   if (!inscripcion.pagado && !esPromo) return 0
-  // For Promo: use theoretical price based on participants
   const monto = inscripcion.monto_cobrado || 0
-  if (coach.esquema_comision === 'Porcentaje') return Math.round(monto * (coach.porcentaje_comision || 0))
-  if (coach.esquema_comision === 'Bono') return coach.pago_extra_clase || 0
-  if (coach.esquema_comision === 'Mixto') {
-    const tipo = inscripcion.clases?.tipo || detalle?.tipo
-    if (tipo === 'Privada') return Math.round(coach.tarifa_privada_fija || 0)
-    return Math.round(monto * (coach.porcentaje_comision || 0))
+  // Promo desde mayo 2026 en adelante: solo 50% de comisión
+  let factorPromo = 1
+  if (esPromo) {
+    const mesIdx = MESES_IDX.indexOf((inscripcion.mes || '').toLowerCase())
+    const anio = inscripcion.anio || 2026
+    const esMayoOPosterior = anio > 2026 || (anio === 2026 && mesIdx >= 4)
+    factorPromo = esMayoOPosterior ? 0.5 : 1
   }
-  return 0
+  let comision = 0
+  if (coach.esquema_comision === 'Porcentaje') comision = Math.round(monto * (coach.porcentaje_comision || 0))
+  else if (coach.esquema_comision === 'Bono') comision = coach.pago_extra_clase || 0
+  else if (coach.esquema_comision === 'Mixto') {
+    const tipo = inscripcion.clases?.tipo || detalle?.tipo
+    if (tipo === 'Privada') comision = Math.round(coach.tarifa_privada_fija || 0)
+    else comision = Math.round(monto * (coach.porcentaje_comision || 0))
+  }
+  return Math.round(comision * (esPromo ? factorPromo : 1))
 }
 
 function EditableMonto({ inscripcion, onUpdate }) {
