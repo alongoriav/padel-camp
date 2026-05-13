@@ -3,7 +3,7 @@ import { supabase } from '../supabase'
 
 const DIAS = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo']
 const HORAS = ['06:00','07:00','08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00','21:00']
-const MODALIDADES = ['Semanal','Clase única','Promo']
+const MODALIDADES = ['Semanal','Clase única']
 const TIPOS = ['Privada','Compartida']
 const METODOS = ['Efectivo','Tarjeta','Transferencia','Check-in','Pendiente']
 const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
@@ -65,6 +65,32 @@ function calcComisionAuto(inscripcion, coaches) {
   return 0
 }
 
+const MESES_IDX = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
+
+function calcComisionAuto(inscripcion, coaches, detalle) {
+  const coachId = inscripcion.clases?.coach_id || detalle?.coach_id
+  const coach = coaches?.find(c => c.id === coachId)
+  if (!coach) return 0
+  const esPromo = inscripcion.metodo_pago === 'Promo'
+  if (!inscripcion.pagado && !esPromo) return 0
+  const monto = inscripcion.monto_cobrado || 0
+  let factorPromo = 1
+  if (esPromo) {
+    const mesIdx = MESES_IDX.indexOf((inscripcion.mes || '').toLowerCase())
+    const anio = inscripcion.anio || 2026
+    factorPromo = (anio > 2026 || (anio === 2026 && mesIdx >= 4)) ? 0.5 : 1
+  }
+  let comision = 0
+  const tipo = inscripcion.clases?.tipo || detalle?.tipo
+  if (coach.esquema_comision === 'Porcentaje') comision = Math.round(monto * (coach.porcentaje_comision || 0))
+  else if (coach.esquema_comision === 'Bono') comision = coach.pago_extra_clase || 0
+  else if (coach.esquema_comision === 'Mixto') {
+    if (tipo === 'Privada') comision = Math.round(coach.tarifa_privada_fija || 0)
+    else comision = Math.round(monto * (coach.porcentaje_comision || 0))
+  }
+  return Math.round(comision * (esPromo ? factorPromo : 1))
+}
+
 function EditableMonto({ inscripcion, onUpdate }) {
   const [editing, setEditing] = useState(false)
   const [valor, setValor] = useState(inscripcion.monto_cobrado || 0)
@@ -119,6 +145,14 @@ export default function Clases({ usuario }) {
   const [nuevaHora, setNuevaHora] = useState('')
   const [modalComision, setModalComision] = useState(null)
   const [comisionManual, setComisionManual] = useState('')
+  const [montoManual, setMontoManual] = useState('')
+  const [editMode, setEditMode] = useState(false)
+  const [editClaseId, setEditClaseId] = useState(null)
+  const [fechaEntradaDetalle, setFechaEntradaDetalle] = useState('')
+  const [editandoHora, setEditandoHora] = useState(false)
+  const [nuevaHora, setNuevaHora] = useState('')
+  const [modalComision, setModalComision] = useState(null)
+  const [comisionManual, setComisionManual] = useState('')
   const [modalNuevoJugador, setModalNuevoJugador] = useState(false)
   const [nuevoJugadorNombre, setNuevoJugadorNombre] = useState('')
   const [nuevoJugadorDesde, setNuevoJugadorDesde] = useState('clase') // 'clase' or 'detalle'
@@ -139,7 +173,7 @@ export default function Clases({ usuario }) {
       supabase.from('coaches').select('*').eq('activo', true).order('nombre'),
       supabase.from('jugadores').select('*').eq('activo', true).order('nombre'),
       supabase.from('clases').select('*, coaches(nombre)').order('fecha_inicio', { ascending: false }),
-      supabase.from('inscripciones').select('*, jugadores(nombre), clases(fecha_inicio, fecha_fin, clases_en_rango, modalidad)'),
+      supabase.from('inscripciones').select('*, jugadores(nombre), clases(coach_id, fecha_inicio, fecha_fin, clases_en_rango, modalidad, tipo, hora, dia)'),
     ])
     setCoaches(cs || []); setJugadores(js || [])
     setClases(cl || []); setInscripciones(ins || [])
@@ -200,6 +234,87 @@ export default function Clases({ usuario }) {
     setNuevoJugadorNombre('')
     setModalNuevoJugador(false)
     showToast(`${nombre} creado y agregado ✓`)
+  }
+
+  const guardarHora = async () => {
+    if (!nuevaHora || !detalle) return
+    await supabase.from('clases').update({ hora: nuevaHora + ':00' }).eq('id', detalle.id)
+    setDetalle(d => ({ ...d, hora: nuevaHora + ':00' }))
+    setEditandoHora(false)
+    showToast('Horario actualizado ✓')
+    fetchAll()
+  }
+
+  const guardarComisionManual = async () => {
+    if (!modalComision) return
+    const valorCom = parseFloat(comisionManual)
+    const valorMonto = parseFloat(montoManual)
+    if (isNaN(valorCom)) return
+    const payload = { comision_override: valorCom }
+    if (!isNaN(valorMonto)) payload.monto_cobrado = valorMonto
+    await supabase.from('inscripciones').update(payload).eq('id', modalComision.inscripcion.id)
+    setModalComision(null)
+    showToast('Datos guardados ✓')
+    fetchAll()
+  }
+
+  const quitarComisionManual = async (inscripcionId) => {
+    await supabase.from('inscripciones').update({ comision_override: null }).eq('id', inscripcionId)
+    showToast('Comisión restaurada ✓')
+    fetchAll()
+  }
+
+  const abrirEdicion = (clase) => {
+    setEditClaseId(clase.id)
+    const ins = inscripciones.filter(i => i.clase_id === clase.id)
+    setForm({
+      coach_id: clase.coach_id,
+      tipo: clase.tipo,
+      modalidad: clase.modalidad === 'Promo' ? 'Semanal' : clase.modalidad,
+      dia: clase.dia || 'Lunes',
+      hora: clase.hora?.slice(0,5) || '09:00',
+      fecha_inicio: clase.fecha_inicio || '',
+      fecha_fin: clase.fecha_fin || clase.fecha_inicio || '',
+      mes: ins[0]?.mes || MESES[new Date().getMonth()],
+      anio: ins[0]?.anio || new Date().getFullYear(),
+    })
+    setJugadoresClase(ins.map(i => ({
+      jugador_id: i.jugador_id,
+      nombre: i.jugadores?.nombre || jugadores.find(j => j.id === i.jugador_id)?.nombre || '',
+      metodo: i.metodo_pago === 'Promo' ? 'Efectivo' : (i.metodo_pago || 'Efectivo'),
+      pagado: i.pagado || false,
+      fecha_entrada: i.fecha_entrada || '',
+      esPromo: i.metodo_pago === 'Promo',
+    })))
+    setEditMode(true)
+    setDetalle(null)
+    setModal(true)
+  }
+
+  const editarClase = async (claseId) => {
+    const numClases = form.modalidad === 'Semanal' ? calcFechas(form.dia, form.fecha_inicio).length : 1
+    await supabase.from('clases').update({
+      coach_id: form.coach_id, tipo: form.tipo, modalidad: form.modalidad,
+      dia: form.modalidad === 'Semanal' && form.dia ? form.dia : null,
+      hora: form.hora + ':00',
+      fecha_inicio: form.fecha_inicio,
+      fecha_fin: form.modalidad === 'Semanal' ? form.fecha_fin : form.fecha_inicio,
+      clases_en_rango: numClases,
+    }).eq('id', claseId)
+    for (const j of jugadoresClase) {
+      if (j.jugador_id) {
+        await supabase.from('inscripciones').update({
+          metodo_pago: j.esPromo ? 'Promo' : j.metodo,
+          pagado: j.esPromo ? true : j.pagado,
+          mes: form.mes, anio: form.anio,
+          fecha_entrada: j.fecha_entrada || null,
+        }).eq('clase_id', claseId).eq('jugador_id', j.jugador_id)
+      }
+    }
+    setModal(false)
+    setEditMode(false)
+    showToast('Clase actualizada ✓')
+    fetchAll()
   }
 
   const guardarClase = async () => {
@@ -394,7 +509,7 @@ export default function Clases({ usuario }) {
       {modal && (
         <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setModal(false)}>
           <div className="modal" style={{ maxWidth: 600 }}>
-            <h2 className="modal-title">Nueva clase</h2>
+            <h2 className="modal-title">{editMode ? "✏️ Editar clase" : "Nueva clase"}</h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div className="grid-2">
                 <div className="form-group">
@@ -424,6 +539,10 @@ export default function Clases({ usuario }) {
                   <label className="form-label">Modalidad</label>
                   <select className="form-input" value={form.modalidad} onChange={e => set('modalidad', e.target.value)}>
                     {MODALIDADES.map(m => <option key={m}>{m}</option>)}
+                  </select>
+                  {form.tipo === 'Compartida' && (
+                    <p style={{ fontSize: 11, color: 'var(--text2)', marginTop: 4 }}>💡 Para promo individual usa el botón 🎁 por jugador</p>
+                  )
                   </select>
                 </div>
                 <div className="form-group">
@@ -573,9 +692,11 @@ export default function Clases({ usuario }) {
               )}
 
               <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 4 }}>
-                <button className="btn btn-secondary" onClick={() => setModal(false)}>Cancelar</button>
-                <button className="btn btn-primary" onClick={guardarClase} disabled={!form.coach_id || jugadoresClase.length === 0 || !form.fecha_inicio}>
-                  Registrar clase
+                <button className="btn btn-secondary" onClick={() => { setModal(false); setEditMode(false) }}>Cancelar</button>
+                <button className="btn btn-primary"
+                  onClick={editMode ? () => editarClase(editClaseId) : guardarClase}
+                  disabled={!form.coach_id || (!editMode && jugadoresClase.length === 0) || !form.fecha_inicio}>
+                  {editMode ? '💾 Guardar cambios' : 'Registrar clase'}
                 </button>
               </div>
             </div>
@@ -616,6 +737,10 @@ export default function Clases({ usuario }) {
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn btn-sm" onClick={() => abrirEdicion(detalle)}
+                  style={{ background: 'rgba(0,229,160,.1)', border: '1px solid rgba(0,229,160,.3)', color: 'var(--accent)', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+                  ✏️ Editar clase
+                </button>
                 <button className="btn btn-sm" onClick={() => eliminarClase(detalle.id)}
                   style={{ background: 'rgba(255,59,48,.15)', border: '1px solid rgba(255,59,48,.3)', color: 'var(--danger)', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', fontSize: 13 }}>
                   🗑 Eliminar clase
@@ -660,19 +785,20 @@ export default function Clases({ usuario }) {
                     </td>
                     <td>
                       {(() => {
-                        const comAuto = calcComisionAuto(i, coaches)
+                        const comAuto = calcComisionAuto(i, coaches, detalle)
                         const comFinal = i.comision_override != null ? i.comision_override : comAuto
                         const esManual = i.comision_override != null
                         return (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                            <span onClick={() => { setComisionManual(String(comFinal)); setModalComision({ inscripcion: i, comisionAuto: comAuto }) }}
-                              title="Clic para personalizar"
-                              style={{ fontFamily: 'var(--mono)', fontSize: 13, cursor: 'pointer',
-                                color: esManual ? 'var(--warn)' : 'var(--text2)', textDecoration: 'underline dotted' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ fontFamily: 'var(--mono)', fontSize: 13, color: esManual ? 'var(--warn)' : 'var(--text2)', fontWeight: esManual ? 700 : 400 }}>
                               ${comFinal.toLocaleString('es-MX')}{esManual ? ' ✏️' : ''}
                             </span>
+                            <button onClick={() => { setComisionManual(String(comFinal)); setMontoManual(String(i.monto_cobrado || 0)); setModalComision({ inscripcion: i, comisionAuto: comAuto }) }}
+                              style={{ background: 'rgba(255,165,2,.15)', border: '1px solid rgba(255,165,2,.3)', borderRadius: 6, padding: '3px 8px', cursor: 'pointer', fontSize: 11, color: 'var(--warn)', whiteSpace: 'nowrap', fontWeight: 600 }}>
+                              ✏️ Personalizar
+                            </button>
                             {esManual && (
-                              <button onClick={() => quitarComisionManual(i.id)} title="Restaurar automático"
+                              <button onClick={() => quitarComisionManual(i.id)} title="Restaurar"
                                 style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: 'var(--text2)' }}>↩</button>
                             )}
                           </div>
@@ -755,6 +881,37 @@ export default function Clases({ usuario }) {
                   onChange={e => setComisionManual(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && guardarComisionManual()}
                   autoFocus />
+              </div>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                <button className="btn btn-secondary" onClick={() => setModalComision(null)}>Cancelar</button>
+                <button className="btn btn-primary" onClick={guardarComisionManual}>Confirmar</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {modalComision && (
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setModalComision(null)}>
+          <div className="modal" style={{ maxWidth: 400 }}>
+            <h2 className="modal-title">Comisión personalizada</h2>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div style={{ background: 'rgba(255,165,2,.08)', border: '1px solid rgba(255,165,2,.2)', borderRadius: 8, padding: '10px 14px', fontSize: 13 }}>
+                <div style={{ color: 'var(--text2)', marginBottom: 4 }}>Jugador: <strong style={{ color: 'var(--text)' }}>{modalComision.inscripcion.jugadores?.nombre}</strong></div>
+                <div style={{ color: 'var(--text2)' }}>Comisión automática: <strong style={{ color: 'var(--accent)', fontFamily: 'var(--mono)' }}>${modalComision.comisionAuto.toLocaleString('es-MX')}</strong></div>
+              </div>
+              <div style={{ fontSize: 13, color: 'var(--text2)', lineHeight: 1.6 }}>
+                ¿Deseas establecer valores personalizados para <strong>{modalComision.inscripcion.jugadores?.nombre}</strong>? No afectará a los demás jugadores.
+              </div>
+              <div className="form-group">
+                <label className="form-label">Monto cobrado al jugador ($)</label>
+                <input className="form-input" type="number" min="0" value={montoManual}
+                  onChange={e => setMontoManual(e.target.value)} autoFocus />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Comisión del coach ($)</label>
+                <input className="form-input" type="number" min="0" value={comisionManual}
+                  onChange={e => setComisionManual(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && guardarComisionManual()} />
               </div>
               <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
                 <button className="btn btn-secondary" onClick={() => setModalComision(null)}>Cancelar</button>
