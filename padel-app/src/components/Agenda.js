@@ -776,7 +776,7 @@ export default function Agenda({ usuario }) {
               <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 4 }}>
                 <button className="btn btn-secondary" onClick={() => setModalNueva(false)}>Cancelar</button>
                 <button className="btn btn-primary" onClick={guardarNueva}
-                  disabled={!formNueva.coach_id || jugadoresClase.length === 0}
+                  disabled={!formNueva.coach_id || (!editMode && jugadoresClase.length === 0)}
                   onClick={editMode ? editarClase : guardarNueva}>
                   {editMode ? '💾 Guardar cambios' : 'Crear clase'}
                 </button>
