@@ -394,6 +394,3 @@ export default function Clases({ usuario }) {
     </div>
   )
 }
-    </div>
-  )
-}
