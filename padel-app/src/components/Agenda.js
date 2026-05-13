@@ -131,28 +131,16 @@ export default function Agenda({ usuario }) {
     showToast(`${nombre} creado y agregado ✓`)
   }
 
-  const calcComisionAuto = (inscripcion) => {
-    const coach = coaches?.find(c => c.id === detalleClase?.coach_id)
-    if (!coach || !inscripcion.pagado) return 0
-    const mod = detalleClase?.modalidad
-    if (mod === 'Promo' || mod === 'Cortesía') return 0
-    const monto = inscripcion.monto_cobrado || 0
-    if (coach.esquema_comision === 'Porcentaje') return Math.round(monto * (coach.porcentaje_comision || 0))
-    if (coach.esquema_comision === 'Bono') return coach.pago_extra_clase || 0
-    if (coach.esquema_comision === 'Mixto') {
-      if (detalleClase?.tipo === 'Privada') return Math.round(coach.tarifa_privada_fija || 0)
-      return Math.round(monto * (coach.porcentaje_comision || 0))
-    }
-    return 0
-  }
-
   const guardarComisionManual = async () => {
     if (!modalComision) return
-    const valor = parseFloat(comisionManual)
-    if (isNaN(valor)) return
-    await supabase.from('inscripciones').update({ comision_override: valor }).eq('id', modalComision.inscripcion.id)
+    const valorCom = parseFloat(comisionManual)
+    const valorMonto = parseFloat(montoManual)
+    if (isNaN(valorCom)) return
+    const payload = { comision_override: valorCom }
+    if (!isNaN(valorMonto)) payload.monto_cobrado = valorMonto
+    await supabase.from('inscripciones').update(payload).eq('id', modalComision.inscripcion.id)
     setModalComision(null)
-    showToast('Comisión personalizada guardada ✓')
+    showToast('Datos guardados ✓')
     const { data } = await supabase.from('inscripciones').select('*, jugadores(nombre)').eq('clase_id', detalleClase.id)
     setInscripcionesDetalle(data || [])
   }
