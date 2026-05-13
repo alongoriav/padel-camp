@@ -101,6 +101,7 @@ export default function Clases({ usuario }) {
   const [jugadores, setJugadores] = useState([])
   const [inscripciones, setInscripciones] = useState([])
   const [modal, setModal] = useState(false)
+  const [editMode, setEditMode] = useState(false)
   const [detalle, setDetalle] = useState(null)
   const [form, setForm] = useState(emptyForm)
   const [fechas, setFechas] = useState([])
@@ -119,6 +120,7 @@ export default function Clases({ usuario }) {
   const [nuevaHora, setNuevaHora] = useState('')
   const [modalComision, setModalComision] = useState(null)
   const [comisionManual, setComisionManual] = useState('')
+  const [montoManual, setMontoManual] = useState('')
   const [montoManual, setMontoManual] = useState('')
   const [modalNuevoJugador, setModalNuevoJugador] = useState(false)
   const [nuevoJugadorNombre, setNuevoJugadorNombre] = useState('')
@@ -206,6 +208,34 @@ export default function Clases({ usuario }) {
     showToast(`${nombre} creado y agregado ✓`)
   }
 
+  const [editClaseId, setEditClaseId] = useState(null)
+
+  const abrirEdicion = (clase) => {
+    setEditClaseId(clase.id)
+    const ins = inscripciones.filter(i => i.clase_id === clase.id)
+    setForm({
+      coach_id: clase.coach_id,
+      tipo: clase.tipo,
+      modalidad: clase.modalidad,
+      dia: clase.dia || 'Lunes',
+      hora: clase.hora?.slice(0,5) || '09:00',
+      fecha_inicio: clase.fecha_inicio || '',
+      fecha_fin: clase.fecha_fin || clase.fecha_inicio || '',
+      mes: ins[0]?.mes || MESES[new Date().getMonth()],
+      anio: ins[0]?.anio || new Date().getFullYear(),
+    })
+    setJugadoresClase(ins.map(i => ({
+      jugador_id: i.jugador_id,
+      nombre: i.jugadores?.nombre || '',
+      metodo: i.metodo_pago || 'Efectivo',
+      pagado: i.pagado || false,
+      fecha_entrada: i.fecha_entrada || '',
+    })))
+    setEditMode(true)
+    setDetalle(null)
+    setModal(true)
+  }
+
   const guardarClase = async () => {
     if (!form.coach_id || jugadoresClase.length === 0 || !form.fecha_inicio) return
     const { data: claseData } = await supabase.from('clases').insert({
@@ -240,6 +270,36 @@ export default function Clases({ usuario }) {
       const { data } = await supabase.from('inscripciones').select('*, jugadores(nombre)').eq('clase_id', detalle.id)
       setDetalle(d => ({ ...d, _ins: data }))
     }
+  }
+
+  const editarClase = async (claseId) => {
+    const numClases = form.modalidad === 'Semanal' ? calcFechas(form.dia, form.fecha_inicio).length : 1
+    await supabase.from('clases').update({
+      coach_id: form.coach_id,
+      tipo: form.tipo,
+      modalidad: form.modalidad,
+      dia: (form.modalidad === 'Semanal' || form.modalidad === 'Promo') && form.dia ? form.dia : null,
+      hora: form.hora + ':00',
+      fecha_inicio: form.fecha_inicio,
+      fecha_fin: form.modalidad === 'Semanal' ? form.fecha_fin : form.fecha_inicio,
+      clases_en_rango: numClases,
+    }).eq('id', claseId)
+    // Update each inscription's mes/method
+    for (const j of jugadoresClase) {
+      if (j.jugador_id) {
+        await supabase.from('inscripciones').update({
+          metodo_pago: j.metodo,
+          pagado: j.pagado,
+          mes: form.mes,
+          anio: form.anio,
+          fecha_entrada: j.fecha_entrada || null,
+        }).eq('clase_id', claseId).eq('jugador_id', j.jugador_id)
+      }
+    }
+    setModal(false)
+    setEditMode(false)
+    showToast('Clase actualizada ✓')
+    fetchAll()
   }
 
   const eliminarClase = async (claseId) => {
@@ -398,7 +458,7 @@ export default function Clases({ usuario }) {
       {modal && (
         <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setModal(false)}>
           <div className="modal" style={{ maxWidth: 600 }}>
-            <h2 className="modal-title">Nueva clase</h2>
+            <h2 className="modal-title">{editMode ? "✏️ Editar clase" : "Nueva clase"}</h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div className="grid-2">
                 <div className="form-group">
@@ -577,7 +637,7 @@ export default function Clases({ usuario }) {
               )}
 
               <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 4 }}>
-                <button className="btn btn-secondary" onClick={() => setModal(false)}>Cancelar</button>
+                <button className="btn btn-secondary" onClick={() => { setModal(false); setEditMode(false) }}>Cancelar</button>
                 <button className="btn btn-primary" onClick={guardarClase} disabled={!form.coach_id || jugadoresClase.length === 0 || !form.fecha_inicio}>
                   Registrar clase
                 </button>
@@ -620,6 +680,10 @@ export default function Clases({ usuario }) {
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn btn-sm" onClick={() => abrirEdicion(detalle)}
+                  style={{ background: 'rgba(0,229,160,.1)', border: '1px solid rgba(0,229,160,.3)', color: 'var(--accent)', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+                  ✏️ Editar clase
+                </button>
                 <button className="btn btn-sm" onClick={() => eliminarClase(detalle.id)}
                   style={{ background: 'rgba(255,59,48,.15)', border: '1px solid rgba(255,59,48,.3)', color: 'var(--danger)', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', fontSize: 13 }}>
                   🗑 Eliminar clase
