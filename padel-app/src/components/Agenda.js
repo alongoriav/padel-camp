@@ -329,9 +329,8 @@ export default function Agenda({ usuario }) {
   )
 
   const participantes = jugadoresClase.length || 1
-  const pagadores = jugadoresClase.filter(j => !j.esPromo).length || 1
   const numClases = formNueva.modalidad === 'Semanal' ? fechasNueva.length : 1
-  const montoPorJugador = calcMonto(formNueva.modalidad, pagadores, numClases)
+  const montoPorJugador = calcMonto(formNueva.modalidad, participantes, numClases)
 
   const guardarNueva = async () => {
     if (!formNueva.coach_id || jugadoresClase.length === 0 || !formNueva.fecha_inicio) return
