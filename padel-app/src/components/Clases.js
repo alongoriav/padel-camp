@@ -154,7 +154,6 @@ export default function Clases({ usuario }) {
   const numClases = form.modalidad === 'Semanal' ? fechas.length : 1
   const participantes = jugadoresClase.length || 1
   const pagadores = jugadoresClase.filter(j => !j.esPromo).length || 1
-  const numClases = form.modalidad === 'Semanal' ? calcFechas(form.dia, form.fecha_inicio).length : 1
   const montoPorJugador = calcMonto(form.modalidad, pagadores, numClases)
 
   const busquedaTrimmed = busqueda.trim()
