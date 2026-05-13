@@ -225,10 +225,11 @@ export default function Clases({ usuario }) {
     })
     setJugadoresClase(ins.map(i => ({
       jugador_id: i.jugador_id,
-      nombre: i.jugadores?.nombre || '',
+      nombre: i.jugadores?.nombre || jugadores.find(j => j.id === i.jugador_id)?.nombre || '',
       metodo: i.metodo_pago || 'Efectivo',
       pagado: i.pagado || false,
       fecha_entrada: i.fecha_entrada || '',
+      esPromo: i.metodo_pago === 'Promo',
     })))
     setEditMode(true)
     setDetalle(null)
@@ -660,7 +661,7 @@ export default function Clases({ usuario }) {
                 <button className="btn btn-secondary" onClick={() => { setModal(false); setEditMode(false) }}>Cancelar</button>
                 <button className="btn btn-primary" 
                   onClick={editMode ? () => editarClase(editClaseId) : guardarClase} 
-                  disabled={!form.coach_id || jugadoresClase.length === 0 || !form.fecha_inicio}>
+                  disabled={!form.coach_id || (!editMode && jugadoresClase.length === 0) || !form.fecha_inicio}>
                   {editMode ? '💾 Guardar cambios' : 'Registrar clase'}
                 </button>
               </div>
