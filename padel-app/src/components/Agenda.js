@@ -412,7 +412,7 @@ export default function Agenda({ usuario }) {
           <div className="modal" style={{ maxWidth: 560 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
               <div>
-                <h2 style={{ fontSize: 18, fontWeight: 700 }}>{detalleClase.coaches?.nombre}</h2>
+                <h2 style={{ fontSize: 22, fontWeight: 700 }}>{detalleClase.coaches?.nombre}</h2>
                 <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
                   <span className={`badge ${detalleClase.tipo === 'Privada' ? 'badge-blue' : 'badge-yellow'}`}>{detalleClase.tipo}</span>
                   <span className={`badge ${detalleClase.modalidad === 'Semanal' ? 'badge-green' : 'badge-gray'}`}>{detalleClase.modalidad}</span>
@@ -429,14 +429,14 @@ export default function Agenda({ usuario }) {
               </div>
             </div>
 
-            <table className="table" style={{ marginBottom: 16 }}>
-              <thead><tr><th>Jugador</th><th>Monto</th><th>Método</th><th>Pago</th><th>Comisión</th></tr></thead>
+            <table className="table" style={{ marginBottom: 16, fontSize: 15 }}>
+              <thead><tr><th style={{fontSize:13}}>Jugador</th><th style={{fontSize:13}}>Monto</th><th style={{fontSize:13}}>Método</th><th style={{fontSize:13}}>Pago</th><th style={{fontSize:13}}>Comisión</th></tr></thead>
               <tbody>
                 {inscripcionesDetalle.map(i => (
                   <tr key={i.id}>
-                    <td style={{ fontWeight: 500 }}>{i.jugadores?.nombre}</td>
-                    <td style={{ fontFamily: 'var(--mono)', fontSize: 13 }}>${i.monto_cobrado?.toLocaleString('es-MX')}</td>
-                    <td style={{ fontSize: 13 }}>{i.metodo_pago}</td>
+                    <td style={{ fontWeight: 600, fontSize: 15 }}>{i.jugadores?.nombre}</td>
+                    <td style={{ fontFamily: 'var(--mono)', fontSize: 15, fontWeight: 600 }}>${i.monto_cobrado?.toLocaleString('es-MX')}</td>
+                    <td style={{ fontSize: 14 }}>{i.metodo_pago}</td>
                     <td>
                       <button onClick={() => togglePago(i)}
                         className={`badge ${i.pagado ? 'badge-green' : 'badge-red'}`}
@@ -450,13 +450,14 @@ export default function Agenda({ usuario }) {
                         const comFinal = i.comision_override != null ? i.comision_override : comAuto
                         const esManual = i.comision_override != null
                         return (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                            <span onClick={() => { setComisionManual(String(comFinal)); setMontoManual(String(i.monto_cobrado || 0)); setModalComision({ inscripcion: i, comisionAuto: comAuto }) }}
-                              title="Clic para personalizar"
-                              style={{ fontFamily: 'var(--mono)', fontSize: 13, cursor: 'pointer',
-                                color: esManual ? 'var(--warn)' : 'var(--text2)', textDecoration: 'underline dotted' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ fontFamily: 'var(--mono)', fontSize: 14, color: esManual ? 'var(--warn)' : 'var(--text2)', fontWeight: esManual ? 700 : 400 }}>
                               ${comFinal.toLocaleString('es-MX')}{esManual ? ' ✏️' : ''}
                             </span>
+                            <button onClick={() => { setComisionManual(String(comFinal)); setMontoManual(String(i.monto_cobrado || 0)); setModalComision({ inscripcion: i, comisionAuto: comAuto }) }}
+                              style={{ background: 'rgba(255,165,2,.15)', border: '1px solid rgba(255,165,2,.3)', borderRadius: 6, padding: '3px 8px', cursor: 'pointer', fontSize: 11, color: 'var(--warn)', whiteSpace: 'nowrap', fontWeight: 600 }}>
+                              ✏️ Personalizar
+                            </button>
                             {esManual && (
                               <button onClick={() => quitarComisionManual(i.id)} title="Restaurar automático"
                                 style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: 'var(--text2)' }}>↩</button>
