@@ -43,6 +43,7 @@ function calcMontoProporcional(montoBase, fechaEntrada, fechaInicio, clasesTotal
   const entrada = new Date(fechaEntrada + 'T00:00:00')
   const fin = new Date(inicio)
   fin.setMonth(fin.getMonth() + 1)
+  
   fin.setDate(0) // last day of month
   const diasTotales = Math.round((fin - inicio) / (1000 * 60 * 60 * 24)) + 1
   const diasRestantes = Math.round((fin - entrada) / (1000 * 60 * 60 * 24)) + 1
