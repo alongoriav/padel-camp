@@ -6,6 +6,7 @@ const DIAS_SEMANA = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado',
 const METODOS = ['Efectivo','Tarjeta','Transferencia','Check-in','Pendiente']
 const MODALIDADES = ['Semanal','Clase única','Promo']
 const TIPOS = ['Privada','Compartida']
+
 const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
 
 function getLunes(date) {
