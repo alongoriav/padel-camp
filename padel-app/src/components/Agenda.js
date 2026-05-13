@@ -629,7 +629,6 @@ export default function Agenda({ usuario }) {
                   {formNueva.tipo === 'Compartida' && (
                     <p style={{ fontSize: 11, color: 'var(--text2)', marginTop: 4 }}>💡 Para promo individual usa el botón 🎁 por jugador</p>
                   )}
-                  </select>
                 </div>
                 <div className="form-group">
                   <label className="form-label">Fecha inicio</label>
