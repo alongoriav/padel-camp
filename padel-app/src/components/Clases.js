@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
+import ModalClase from './ModalClase'
 
 const DIAS = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo']
 const HORAS = ['06:00','07:00','08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00','21:00']
-const MODALIDADES = ['Semanal','Clase única']
+const MODALIDADES = ['Semanal','Clase única','Promo']
 const TIPOS = ['Privada','Compartida']
 const METODOS = ['Efectivo','Tarjeta','Transferencia','Check-in','Pendiente']
 const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
@@ -50,32 +51,19 @@ function calcMontoProporcional(montoBase, fechaEntrada, fechaInicio, clasesTotal
   return Math.round(montoBase * proporcion)
 }
 
-const MESES_IDX = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
-
-function calcComisionAuto(inscripcion, coaches, detalle) {
-  const coachId = inscripcion.clases?.coach_id || detalle?.coach_id
-  const coach = coaches?.find(c => c.id === coachId)
-  if (!coach) return 0
-  const esPromo = inscripcion.metodo_pago === 'Promo' || inscripcion.monto_cobrado === 0
-  if (!inscripcion.pagado && !esPromo) return 0
+function calcComisionAuto(inscripcion, coaches) {
+  const coach = coaches?.find(c => c.id === inscripcion.clases?.coach_id)
+  if (!coach || !inscripcion.pagado) return 0
+  const mod = inscripcion.clases?.modalidad
+  if (mod === 'Promo' || mod === 'Cortesía') return 0
   const monto = inscripcion.monto_cobrado || 0
-  // Promo desde mayo 2026 en adelante: solo 50% de comisión
-  let factorPromo = 1
-  if (esPromo) {
-    const mesIdx = MESES_IDX.indexOf((inscripcion.mes || '').toLowerCase())
-    const anio = inscripcion.anio || 2026
-    const esMayoOPosterior = anio > 2026 || (anio === 2026 && mesIdx >= 4)
-    factorPromo = esMayoOPosterior ? 0.5 : 1
+  if (coach.esquema_comision === 'Porcentaje') return Math.round(monto * (coach.porcentaje_comision || 0))
+  if (coach.esquema_comision === 'Bono') return coach.pago_extra_clase || 0
+  if (coach.esquema_comision === 'Mixto') {
+    if (inscripcion.clases?.tipo === 'Privada') return Math.round(coach.tarifa_privada_fija || 0)
+    return Math.round(monto * (coach.porcentaje_comision || 0))
   }
-  let comision = 0
-  if (coach.esquema_comision === 'Porcentaje') comision = Math.round(monto * (coach.porcentaje_comision || 0))
-  else if (coach.esquema_comision === 'Bono') comision = coach.pago_extra_clase || 0
-  else if (coach.esquema_comision === 'Mixto') {
-    const tipo = inscripcion.clases?.tipo || detalle?.tipo
-    if (tipo === 'Privada') comision = Math.round(coach.tarifa_privada_fija || 0)
-    else comision = Math.round(monto * (coach.porcentaje_comision || 0))
-  }
-  return Math.round(comision * (esPromo ? factorPromo : 1))
+  return 0
 }
 
 function EditableMonto({ inscripcion, onUpdate }) {
@@ -113,13 +101,9 @@ export default function Clases({ usuario }) {
   const [coaches, setCoaches] = useState([])
   const [jugadores, setJugadores] = useState([])
   const [inscripciones, setInscripciones] = useState([])
-  const [modal, setModal] = useState(false)
-  const [editMode, setEditMode] = useState(false)
-  const [detalle, setDetalle] = useState(null)
-  const [form, setForm] = useState(emptyForm)
+  const [modalClaseId, setModalClaseId] = useState(null) // null=closed, 'new'=nueva, uuid=editar
+  const [modalInitialForm, setModalInitialForm] = useState(null)
   const [fechas, setFechas] = useState([])
-  const [jugadoresClase, setJugadoresClase] = useState([])
-  const [busqueda, setBusqueda] = useState('')
   const [toast, setToast] = useState('')
   const [filterCoach, setFilterCoach] = useState('')
   const [filterMes, setFilterMes] = useState('')
@@ -127,15 +111,6 @@ export default function Clases({ usuario }) {
   const [sortCol, setSortCol] = useState('fecha_inicio')
   const [sortDir, setSortDir] = useState('desc')
   const [filterHasta, setFilterHasta] = useState('')
-  const [busquedaDetalle, setBusquedaDetalle] = useState('')
-  const [fechaEntradaDetalle, setFechaEntradaDetalle] = useState('')
-  const [editandoHora, setEditandoHora] = useState(false)
-  const [nuevaHora, setNuevaHora] = useState('')
-  const [modalComision, setModalComision] = useState(null)
-  const [comisionManual, setComisionManual] = useState('')
-  const [montoManual, setMontoManual] = useState('')
-  const [modalNuevoJugador, setModalNuevoJugador] = useState(false)
-  const [nuevoJugadorNombre, setNuevoJugadorNombre] = useState('')
   const [nuevoJugadorDesde, setNuevoJugadorDesde] = useState('clase') // 'clase' or 'detalle'
   const isAdmin = usuario?.rol === 'admin'
 
@@ -176,14 +151,11 @@ export default function Clases({ usuario }) {
 
   const guardarComisionManual = async () => {
     if (!modalComision) return
-    const valorCom = parseFloat(comisionManual)
-    const valorMonto = parseFloat(montoManual)
-    if (isNaN(valorCom)) return
-    const payload = { comision_override: valorCom }
-    if (!isNaN(valorMonto)) payload.monto_cobrado = valorMonto
-    await supabase.from('inscripciones').update(payload).eq('id', modalComision.inscripcion.id)
+    const valor = parseFloat(comisionManual)
+    if (isNaN(valor)) return
+    await supabase.from('inscripciones').update({ comision_override: valor }).eq('id', modalComision.inscripcion.id)
     setModalComision(null)
-    showToast('Datos guardados ✓')
+    showToast('Comisión personalizada guardada ✓')
     fetchAll()
   }
 
@@ -220,35 +192,6 @@ export default function Clases({ usuario }) {
     showToast(`${nombre} creado y agregado ✓`)
   }
 
-  const [editClaseId, setEditClaseId] = useState(null)
-
-  const abrirEdicion = (clase) => {
-    setEditClaseId(clase.id)
-    const ins = inscripciones.filter(i => i.clase_id === clase.id)
-    setForm({
-      coach_id: clase.coach_id,
-      tipo: clase.tipo,
-      modalidad: clase.modalidad,
-      dia: clase.dia || 'Lunes',
-      hora: clase.hora?.slice(0,5) || '09:00',
-      fecha_inicio: clase.fecha_inicio || '',
-      fecha_fin: clase.fecha_fin || clase.fecha_inicio || '',
-      mes: ins[0]?.mes || MESES[new Date().getMonth()],
-      anio: ins[0]?.anio || new Date().getFullYear(),
-    })
-    setJugadoresClase(ins.map(i => ({
-      jugador_id: i.jugador_id,
-      nombre: i.jugadores?.nombre || jugadores.find(j => j.id === i.jugador_id)?.nombre || '',
-      metodo: i.metodo_pago || 'Efectivo',
-      pagado: i.pagado || false,
-      fecha_entrada: i.fecha_entrada || '',
-      esPromo: i.metodo_pago === 'Promo',
-    })))
-    setEditMode(true)
-    setDetalle(null)
-    setModal(true)
-  }
-
   const guardarClase = async () => {
     if (!form.coach_id || jugadoresClase.length === 0 || !form.fecha_inicio) return
     const { data: claseData } = await supabase.from('clases').insert({
@@ -259,11 +202,10 @@ export default function Clases({ usuario }) {
     }).select().single()
     if (!claseData) { showToast('Error al guardar'); return }
     await supabase.from('inscripciones').insert(jugadoresClase.map(j => {
-      const montoFinal = j.esPromo ? 0 : (j._montoProporcional != null ? j._montoProporcional : montoPorJugador)
+      const montoFinal = j._montoProporcional != null ? j._montoProporcional : montoPorJugador
       return {
         clase_id: claseData.id, jugador_id: j.jugador_id,
-        metodo_pago: j.esPromo ? 'Promo' : j.metodo,
-        pagado: j.esPromo ? true : j.pagado,
+        metodo_pago: j.metodo, pagado: j.pagado,
         monto_cobrado: montoFinal, mes: form.mes, anio: form.anio,
         fecha_entrada: j.fecha_entrada || null,
       }
@@ -281,39 +223,9 @@ export default function Clases({ usuario }) {
     await supabase.from('inscripciones').update(update).eq('id', ins.id)
     fetchAll()
     if (detalle) {
-      const { data } = await supabase.from('inscripciones').select('*, jugadores(nombre), clases(coach_id, tipo, modalidad, clases_en_rango)').eq('clase_id', detalle.id)
+      const { data } = await supabase.from('inscripciones').select('*, jugadores(nombre)').eq('clase_id', detalle.id)
       setDetalle(d => ({ ...d, _ins: data }))
     }
-  }
-
-  const editarClase = async (claseId) => {
-    const numClases = form.modalidad === 'Semanal' ? calcFechas(form.dia, form.fecha_inicio).length : 1
-    await supabase.from('clases').update({
-      coach_id: form.coach_id,
-      tipo: form.tipo,
-      modalidad: form.modalidad,
-      dia: (form.modalidad === 'Semanal' || form.modalidad === 'Promo') && form.dia ? form.dia : null,
-      hora: form.hora + ':00',
-      fecha_inicio: form.fecha_inicio,
-      fecha_fin: form.modalidad === 'Semanal' ? form.fecha_fin : form.fecha_inicio,
-      clases_en_rango: numClases,
-    }).eq('id', claseId)
-    // Update each inscription's mes/method
-    for (const j of jugadoresClase) {
-      if (j.jugador_id) {
-        await supabase.from('inscripciones').update({
-          metodo_pago: j.metodo,
-          pagado: j.pagado,
-          mes: form.mes,
-          anio: form.anio,
-          fecha_entrada: j.fecha_entrada || null,
-        }).eq('clase_id', claseId).eq('jugador_id', j.jugador_id)
-      }
-    }
-    setModal(false)
-    setEditMode(false)
-    showToast('Clase actualizada ✓')
-    fetchAll()
   }
 
   const eliminarClase = async (claseId) => {
@@ -408,7 +320,7 @@ export default function Clases({ usuario }) {
           <h1 style={{ fontSize: 22, fontWeight: 700 }}>Clases</h1>
           <p style={{ color: 'var(--text2)', fontSize: 14, marginTop: 4 }}>{clasesFiltradas.length} clases</p>
         </div>
-        {isAdmin && <button className="btn btn-primary" onClick={() => { setForm(emptyForm); setJugadoresClase([]); setBusqueda(''); setModal(true) }}>+ Nueva clase</button>}
+        {isAdmin && <button className="btn btn-primary" onClick={() => { setModalClaseId('new'); setModalInitialForm(null) }}>+ Nueva clase</button>}
       </div>
 
       {isAdmin && (
@@ -450,7 +362,7 @@ export default function Clases({ usuario }) {
               const ins = inscripciones.filter(i => i.clase_id === c.id)
               const pagados = ins.filter(i => i.pagado).length
               return (
-                <tr key={c.id} style={{ cursor: 'pointer' }} onClick={() => setDetalle(c)}>
+                <tr key={c.id} style={{ cursor: 'pointer' }} onClick={() => setModalClaseId(c.id)}>
                   <td style={{ fontWeight: 600 }}>{c.coaches?.nombre}</td>
                   <td><span className={`badge ${c.tipo === 'Privada' ? 'badge-blue' : 'badge-yellow'}`}>{c.tipo}</span></td>
                   <td><span className={`badge ${c.modalidad === 'Semanal' ? 'badge-green' : c.modalidad === 'Promo' || c.modalidad === 'Cortesía' ? 'badge-gray' : 'badge-blue'}`}>{c.modalidad}</span></td>
@@ -468,412 +380,20 @@ export default function Clases({ usuario }) {
         </table>
       </div>
 
-      {/* Modal nueva clase */}
-      {modal && (
-        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setModal(false)}>
-          <div className="modal" style={{ maxWidth: 600 }}>
-            <h2 className="modal-title">{editMode ? "✏️ Editar clase" : "Nueva clase"}</h2>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <div className="grid-2">
-                <div className="form-group">
-                  <label className="form-label">Coach</label>
-                  <select className="form-input" value={form.coach_id} onChange={e => set('coach_id', e.target.value)}>
-                    {coaches.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Tipo</label>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    {TIPOS.map(t => (
-                      <button key={t} onClick={() => set('tipo', t)} style={{
-                        flex: 1, padding: '9px', borderRadius: 8,
-                        border: `1px solid ${form.tipo === t ? 'var(--accent)' : 'var(--border)'}`,
-                        background: form.tipo === t ? 'rgba(0,229,160,.1)' : 'var(--bg3)',
-                        color: form.tipo === t ? 'var(--accent)' : 'var(--text2)',
-                        fontSize: 13, fontWeight: 500, cursor: 'pointer'
-                      }}>{t}</button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid-2">
-                <div className="form-group">
-                  <label className="form-label">Modalidad</label>
-                  <select className="form-input" value={form.modalidad} onChange={e => set('modalidad', e.target.value)}>
-                    {MODALIDADES.map(m => <option key={m}>{m}</option>)}
-                  </select>
-                  {form.tipo === 'Compartida' && (
-                    <p style={{ fontSize: 11, color: 'var(--text2)', marginTop: 4 }}>💡 Para promo individual usa el botón 🎁 por jugador</p>
-                  )}
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Hora</label>
-                  <select className="form-input" value={form.hora} onChange={e => set('hora', e.target.value)}>
-                    {HORAS.map(h => <option key={h}>{h}</option>)}
-                  </select>
-                </div>
-              </div>
-
-              {form.modalidad === 'Semanal' ? (
-                <div className="grid-2">
-                  <div className="form-group">
-                    <label className="form-label">Día</label>
-                    <select className="form-input" value={form.dia} onChange={e => set('dia', e.target.value)}>
-                      {DIAS.map(d => <option key={d}>{d}</option>)}
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Fecha inicio</label>
-                    <input className="form-input" type="date" value={form.fecha_inicio} onChange={e => set('fecha_inicio', e.target.value)} />
-                  </div>
-                </div>
-              ) : (
-                <div className="form-group">
-                  <label className="form-label">Fecha</label>
-                  <input className="form-input" type="date" value={form.fecha_inicio} onChange={e => set('fecha_inicio', e.target.value)} />
-                </div>
-              )}
-
-              {form.modalidad === 'Semanal' && fechas.length > 0 && (
-                <div style={{ background: 'rgba(0,229,160,.06)', border: '1px solid rgba(0,229,160,.2)', borderRadius: 8, padding: '10px 14px', fontSize: 13, color: 'var(--text2)' }}>
-                  📅 {fechas.length} clases: {fechas.map(f => f.toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })).join(' · ')}
-                </div>
-              )}
-
-              <div className="form-group">
-                <label className="form-label">Mes de cobro</label>
-                <select className="form-input" value={form.mes} onChange={e => set('mes', e.target.value)}>
-                  {MESES.map(m => <option key={m}>{m}</option>)}
-                </select>
-              </div>
-
-              <div className="form-group">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                  <label className="form-label" style={{ margin: 0 }}>
-                    Jugadores {jugadoresClase.length > 0 && <span style={{ color: 'var(--accent)' }}>({jugadoresClase.length})</span>}
-                  </label>
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    <button type="button" onClick={() => { setNuevoJugadorDesde('clase'); setModalNuevoJugador(true) }} style={{
-                      background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 8,
-                      padding: '5px 12px', cursor: 'pointer', fontSize: 13, color: 'var(--text2)'
-                    }}>+ Nuevo</button>
-                    <button type="button" onClick={() => setBusqueda(' ')} style={{
-                      background: 'var(--accent)', border: 'none', borderRadius: 8,
-                      padding: '5px 12px', cursor: 'pointer', fontSize: 13, fontWeight: 700, color: '#000'
-                    }}>+ Agregar</button>
-                  </div>
-                </div>
-                <div style={{ position: 'relative', marginBottom: 10 }}>
-                  <input className="form-input" placeholder="Buscar jugador..." value={busqueda} 
-                    onChange={e => setBusqueda(e.target.value)} />
-                  {busqueda.length > 0 && jugadoresFiltrados.length > 0 && (
-                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10, background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 8, maxHeight: 180, overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,.4)' }}>
-                      {jugadoresFiltrados.slice(0, 6).map(j => (
-                        <div key={j.id} onMouseDown={e => { e.preventDefault(); setJugadoresClase(prev => [...prev, { jugador_id: j.id, nombre: j.nombre, metodo: 'Efectivo', pagado: false, fecha_entrada: '' }]); setBusqueda('') }}
-                          style={{ padding: '10px 14px', cursor: 'pointer', fontSize: 14, borderBottom: '1px solid var(--border)' }}
-                          onMouseEnter={e => e.currentTarget.style.background = 'var(--border)'}
-                          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                          {j.nombre}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                {jugadoresClase.map(j => (
-                  <div key={j.jugador_id} style={{ display: 'flex', alignItems: 'center', gap: 8, background: j.esPromo ? 'rgba(255,165,2,.08)' : 'var(--bg3)', borderRadius: 8, padding: '8px 12px', marginBottom: 6, border: `1px solid ${j.esPromo ? 'rgba(255,165,2,.3)' : 'var(--border)'}` }}>
-                    <div style={{ fontWeight: 500, fontSize: 14, flex: 1 }}>
-                      {j.nombre}
-                      {j.esPromo && <span style={{ marginLeft: 6, fontSize: 11, background: 'rgba(255,165,2,.2)', color: 'var(--warn)', borderRadius: 4, padding: '1px 6px' }}>PROMO</span>}
-                    </div>
-                    {form.tipo === 'Compartida' && (
-                      <button type="button" onClick={() => setJugadoresClase(prev => prev.map(x => x.jugador_id === j.jugador_id ? { ...x, esPromo: !x.esPromo, metodo: !x.esPromo ? 'Promo' : 'Efectivo', pagado: !x.esPromo ? true : false } : x))}
-                        style={{ background: j.esPromo ? 'rgba(255,165,2,.2)' : 'var(--bg2)', border: `1px solid ${j.esPromo ? 'var(--warn)' : 'var(--border)'}`, borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 11, color: j.esPromo ? 'var(--warn)' : 'var(--text2)', fontWeight: j.esPromo ? 700 : 400, whiteSpace: 'nowrap' }}>
-                        🎁 {j.esPromo ? 'Es Promo' : 'Dar Promo'}
-                      </button>
-                    )}
-                    {!j.esPromo && (
-                    <select className="form-input" value={j.metodo} style={{ maxWidth: 130 }}
-                      onChange={e => setJugadoresClase(prev => prev.map(x => x.jugador_id === j.jugador_id ? { ...x, metodo: e.target.value } : x))}>
-                      {METODOS.map(m => <option key={m}>{m}</option>)}
-                    </select>
-                    )}
-                    {!j.esPromo && (
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                      <input type="checkbox" checked={j.pagado}
-                        onChange={e => setJugadoresClase(prev => prev.map(x => x.jugador_id === j.jugador_id ? { ...x, pagado: e.target.checked } : x))} />
-                      Pagado
-                    </label>
-                    )}
-                    {form.tipo === 'Compartida' && (
-                      <div style={{ position: 'relative' }}>
-                        <button onClick={() => setJugadoresClase(prev => prev.map(x => x.jugador_id === j.jugador_id ? { ...x, _showCal: !x._showCal } : x))}
-                          style={{ background: j.fecha_entrada ? 'rgba(255,59,48,.2)' : 'rgba(255,59,48,.1)', border: '1px solid rgba(255,59,48,.4)', borderRadius: 8, padding: '5px 8px', cursor: 'pointer', fontSize: 11, color: '#ff3b30', whiteSpace: 'nowrap', fontWeight: 600 }}>
-                          📅 {j.fecha_entrada ? j.fecha_entrada : 'Fecha entrada'}
-                        </button>
-                        {j._showCal && (
-                          <div style={{ position: 'absolute', right: 0, top: '110%', zIndex: 50, background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 12, padding: 14, boxShadow: '0 8px 32px rgba(0,0,0,.5)', minWidth: 260 }}>
-                            <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 8 }}>¿Desde cuándo entra este jugador?</div>
-                            <input type="date" value={j.fecha_entrada || ''}
-                              onChange={e => {
-                                const fecha = e.target.value
-                                const montoBase = calcMonto(form.modalidad, jugadoresClase.length, numClases)
-                                const montoP = fecha && form.fecha_inicio ? calcMontoProporcional(montoBase, fecha, form.fecha_inicio, numClases) : montoBase
-                                setJugadoresClase(prev => prev.map(x => x.jugador_id === j.jugador_id ? { ...x, fecha_entrada: fecha, _showCal: false, _montoProporcional: montoP } : x))
-                              }}
-                              style={{ width: '100%', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px', fontSize: 14, color: 'var(--text)' }} />
-                            {j.fecha_entrada && form.fecha_inicio && (
-                              <div style={{ marginTop: 10, background: 'rgba(255,165,2,.1)', border: '1px solid rgba(255,165,2,.3)', borderRadius: 8, padding: '8px 12px' }}>
-                                <div style={{ fontSize: 11, color: 'var(--warn)', marginBottom: 2 }}>Monto proporcional:</div>
-                                <div style={{ fontFamily: 'var(--mono)', fontSize: 18, fontWeight: 700, color: 'var(--warn)' }}>
-                                  ${calcMontoProporcional(calcMonto(form.modalidad, jugadoresClase.length, numClases), j.fecha_entrada, form.fecha_inicio, numClases).toLocaleString('es-MX')}
-                                </div>
-                                <div style={{ fontSize: 10, color: 'var(--text2)', marginTop: 2 }}>vs ${calcMonto(form.modalidad, jugadoresClase.length, numClases).toLocaleString('es-MX')} base</div>
-                              </div>
-                            )}
-                            <button onClick={() => setJugadoresClase(prev => prev.map(x => x.jugador_id === j.jugador_id ? { ...x, fecha_entrada: '', _showCal: false, _montoProporcional: null } : x))}
-                              style={{ marginTop: 8, width: '100%', background: 'transparent', border: '1px solid var(--border)', borderRadius: 8, padding: '6px', fontSize: 12, color: 'var(--text2)', cursor: 'pointer' }}>
-                              Quitar fecha
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                    <button onClick={() => setJugadoresClase(prev => prev.filter(x => x.jugador_id !== j.jugador_id))}
-                      style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer', fontSize: 16 }}>✕</button>
-                  </div>
-                ))}
-              </div>
-
-              {jugadoresClase.length > 0 && (
-                <div style={{ background: 'rgba(0,229,160,.08)', border: '1px solid rgba(0,229,160,.2)', borderRadius: 8, padding: '12px 16px' }}>
-                  {jugadoresClase.map(j => {
-                    const monto = j.esPromo ? 0 : (j._montoProporcional != null ? j._montoProporcional : montoPorJugador)
-                    const esProporcional = !j.esPromo && j._montoProporcional != null && j._montoProporcional !== montoPorJugador
-                    return (
-                      <div key={j.jugador_id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginTop: 3 }}>
-                        <span style={{ color: 'var(--text2)' }}>
-                          {j.nombre}
-                          {j.esPromo && <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--warn)' }}>🎁 Promo</span>}
-                          {j.fecha_entrada && <span style={{ color: 'var(--danger)', fontSize: 11, marginLeft: 4 }}>desde {j.fecha_entrada}</span>}
-                        </span>
-                        <span style={{ fontFamily: 'var(--mono)', color: j.esPromo ? 'var(--warn)' : esProporcional ? 'var(--warn)' : 'var(--accent)', fontWeight: 700, fontSize: 15 }}>
-                          {j.esPromo ? 'PROMO' : `$${monto.toLocaleString('es-MX')}`}
-                        </span>
-                      </div>
-                    )
-                  })}
-                  <div style={{ borderTop: '1px solid rgba(0,229,160,.2)', marginTop: 8, paddingTop: 8, display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text2)' }}>
-                    <span>${montoPorJugador.toLocaleString('es-MX')}/jugador pagador · {numClases} clase{numClases !== 1 ? 's' : ''}</span>
-                    <span style={{ color: 'var(--accent)', fontWeight: 600 }}>Total: ${jugadoresClase.filter(j => !j.esPromo).reduce((a, j) => a + (j._montoProporcional != null ? j._montoProporcional : montoPorJugador), 0).toLocaleString('es-MX')}</span>
-                  </div>
-                </div>
-              )}
-
-              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 4 }}>
-                <button className="btn btn-secondary" onClick={() => { setModal(false); setEditMode(false) }}>Cancelar</button>
-                <button className="btn btn-primary" 
-                  onClick={editMode ? () => editarClase(editClaseId) : guardarClase} 
-                  disabled={!form.coach_id || (!editMode && jugadoresClase.length === 0) || !form.fecha_inicio}>
-                  {editMode ? '💾 Guardar cambios' : 'Registrar clase'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+      {modalClaseId && (
+        <ModalClase
+          claseId={modalClaseId === 'new' ? null : modalClaseId}
+          initialForm={modalInitialForm}
+          coaches={coaches}
+          jugadores={jugadores}
+          inscripcionesList={inscripciones}
+          onClose={() => { setModalClaseId(null); setModalInitialForm(null) }}
+          onSaved={() => fetchAll()}
+        />
       )}
-
-      {/* Modal detalle */}
-      {detalle && (
-        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setDetalle(null)}>
-          <div className="modal" style={{ maxWidth: 580 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
-              <div>
-                <h2 style={{ fontSize: 18, fontWeight: 700 }}>{detalle.coaches?.nombre}</h2>
-                <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
-                  <span className={`badge ${detalle.tipo === 'Privada' ? 'badge-blue' : 'badge-yellow'}`}>{detalle.tipo}</span>
-                  <span className={`badge ${detalle.modalidad === 'Semanal' ? 'badge-green' : 'badge-gray'}`}>{detalle.modalidad}</span>
-                  {detalle.dia && <span style={{ fontSize: 13, color: 'var(--text2)' }}>📅 {detalle.dia}</span>}
-                  {editandoHora ? (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <select className="form-input" value={nuevaHora} onChange={e => setNuevaHora(e.target.value)}
-                        style={{ padding: '3px 8px', fontSize: 13, maxWidth: 100 }}>
-                        {['06:00','07:00','08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00','21:00'].map(h => (
-                          <option key={h} value={h}>{h}</option>
-                        ))}
-                      </select>
-                      <button onClick={guardarHora} style={{ background: 'var(--accent)', border: 'none', borderRadius: 6, padding: '3px 8px', fontSize: 12, cursor: 'pointer', color: '#000', fontWeight: 700 }}>✓</button>
-                      <button onClick={() => setEditandoHora(false)} style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 6, padding: '3px 8px', fontSize: 12, cursor: 'pointer', color: 'var(--text2)' }}>✕</button>
-                    </div>
-                  ) : (
-                    <span onClick={() => { setNuevaHora(detalle.hora?.slice(0,5) || '09:00'); setEditandoHora(true) }}
-                      style={{ fontSize: 13, color: detalle.hora?.slice(0,5) === '00:00' ? 'var(--danger)' : 'var(--text2)', fontFamily: 'var(--mono)', cursor: 'pointer', textDecoration: 'underline dotted' }}
-                      title="Clic para editar horario">
-                      🕐 {detalle.hora?.slice(0,5)} {detalle.hora?.slice(0,5) === '00:00' && '⚠️'}
-                    </span>
-                  )}
-                  <span style={{ fontSize: 13, color: 'var(--text2)' }}>{detalle.fecha_inicio}</span>
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button className="btn btn-sm" onClick={() => abrirEdicion(detalle)}
-                  style={{ background: 'rgba(0,229,160,.1)', border: '1px solid rgba(0,229,160,.3)', color: 'var(--accent)', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
-                  ✏️ Editar clase
-                </button>
-                <button className="btn btn-sm" onClick={() => eliminarClase(detalle.id)}
-                  style={{ background: 'rgba(255,59,48,.15)', border: '1px solid rgba(255,59,48,.3)', color: 'var(--danger)', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', fontSize: 13 }}>
-                  🗑 Eliminar clase
-                </button>
-                <button className="btn btn-secondary btn-sm" onClick={() => setDetalle(null)}>Cerrar</button>
-              </div>
-            </div>
-
-            {insDetalle.length > 0 && (() => {
-              const montoActual = calcMonto(detalle?.modalidad, insDetalle.length, detalle?.clases_en_rango || 1)
-              const montoConUno = calcMonto(detalle?.modalidad, insDetalle.length + 1, detalle?.clases_en_rango || 1)
-              const saldo = montoActual - montoConUno
-              return saldo > 0 ? (
-                <div style={{ background: 'rgba(255,165,2,.08)', border: '1px solid rgba(255,165,2,.2)', borderRadius: 8, padding: '8px 12px', fontSize: 12, color: 'var(--warn)', marginBottom: 10 }}>
-                  💡 Si agregas un jugador más, el precio baja a ${montoConUno.toLocaleString('es-MX')} c/u · Saldo a favor jugadores actuales: <strong>${saldo.toLocaleString('es-MX')} c/u</strong>
-                </div>
-              ) : null
-            })()}
-            <table className="table" style={{ marginBottom: 16 }}>
-              <thead><tr><th>Jugador</th><th>Monto</th><th>Método</th><th>Pago</th><th>Comisión</th></tr></thead>
-              <tbody>
-                {insDetalle.map(i => (
-                  <tr key={i.id}>
-                    <td style={{ fontWeight: 500 }}>
-                      {i.jugadores?.nombre}
-                      {i.fecha_entrada && <div style={{ fontSize: 10, color: 'var(--warn)' }}>Desde {i.fecha_entrada}</div>}
-                    </td>
-                    <td><EditableMonto inscripcion={i} onUpdate={fetchAll} /></td>
-                    <td style={{ fontSize: 13 }}>
-                      {i.metodo_pago}
-                      {i.metodo_pago === 'Check-in' && (
-                        <div style={{ fontSize: 10, color: 'var(--warn)', marginTop: 2 }}>
-                          ${i.monto_checkin || 200} check-in
-                          {i.monto_complemento > 0 && ` + $${i.monto_complemento} ${i.metodo_complemento || ''}`}
-                        </div>
-                      )}
-                    </td>
-                    <td>
-                      <button onClick={() => togglePago(i)} className={`badge ${i.pagado ? 'badge-green' : i.metodo_pago === 'Check-in' && !i.complemento_pagado ? 'badge-yellow' : 'badge-red'}`} style={{ border: 'none', cursor: 'pointer' }}>
-                        {i.pagado ? '✅ Pagado' : i.metodo_pago === 'Check-in' ? '⚡ Check-in' : '❌ Pendiente'}
-                      </button>
-                    </td>
-                    <td>
-                      {(() => {
-                        const comAuto = calcComisionAuto(i, coaches, detalle)
-                        const comFinal = i.comision_override != null ? i.comision_override : comAuto
-                        const esManual = i.comision_override != null
-                        return (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <span style={{ fontFamily: 'var(--mono)', fontSize: 14, color: esManual ? 'var(--warn)' : 'var(--text2)', fontWeight: esManual ? 700 : 400 }}>
-                              ${comFinal.toLocaleString('es-MX')}{esManual ? ' ✏️' : ''}
-                            </span>
-                            <button onClick={() => { setComisionManual(String(comFinal)); setMontoManual(String(i.monto_cobrado || 0)); setModalComision({ inscripcion: i, comisionAuto: comAuto }) }}
-                              style={{ background: 'rgba(255,165,2,.15)', border: '1px solid rgba(255,165,2,.3)', borderRadius: 6, padding: '3px 8px', cursor: 'pointer', fontSize: 11, color: 'var(--warn)', whiteSpace: 'nowrap', fontWeight: 600 }}>
-                              ✏️ Personalizar
-                            </button>
-                            {esManual && (
-                              <button onClick={() => quitarComisionManual(i.id)} title="Restaurar automático"
-                                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: 'var(--text2)' }}>↩</button>
-                            )}
-                          </div>
-                        )
-                      })()}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-
-            <div style={{ borderTop: '1px solid var(--border)', paddingTop: 14 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                <label className="form-label" style={{ margin: 0 }}>Agregar jugador al grupo</label>
-                <button type="button" onClick={() => { setNuevoJugadorDesde('detalle'); setModalNuevoJugador(true) }} style={{
-                  background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 8,
-                  padding: '4px 10px', cursor: 'pointer', fontSize: 12, color: 'var(--text2)'
-                }}>+ Jugador nuevo</button>
-              </div>
-              <div style={{ position: 'relative' }}>
-                <input className="form-input" placeholder="Buscar jugador..." value={busquedaDetalle} 
-                  onChange={e => setBusquedaDetalle(e.target.value)} />
-                {busquedaDetalle && jugadoresDisponiblesDetalle.length > 0 && (
-                  <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10, background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 8, maxHeight: 180, overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,.4)' }}>
-                    {jugadoresDisponiblesDetalle.slice(0, 6).map(j => (
-                      <div key={j.id} onMouseDown={e => { e.preventDefault(); agregarJugadorDetalle(j) }}
-                        style={{ padding: '10px 14px', cursor: 'pointer', fontSize: 14, borderBottom: '1px solid var(--border)' }}
-                        onMouseEnter={e => e.currentTarget.style.background = 'var(--border)'}
-                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                        + {j.nombre}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal nuevo jugador */}
-      {modalNuevoJugador && (
-        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setModalNuevoJugador(false)}>
-          <div className="modal" style={{ maxWidth: 380 }}>
-            <h2 className="modal-title">Nuevo jugador</h2>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <div className="form-group">
-                <label className="form-label">Nombre completo</label>
-                <input className="form-input" placeholder="Ej: Juan Pérez" value={nuevoJugadorNombre}
-                  onChange={e => setNuevoJugadorNombre(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && crearYAgregarJugador()}
-                  autoFocus />
-              </div>
-              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                <button className="btn btn-secondary" onClick={() => setModalNuevoJugador(false)}>Cancelar</button>
-                <button className="btn btn-primary" onClick={crearYAgregarJugador} disabled={!nuevoJugadorNombre.trim()}>
-                  Crear y agregar
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {modalComision && (
-        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setModalComision(null)}>
-          <div className="modal" style={{ maxWidth: 400 }}>
-            <h2 className="modal-title">Comisión personalizada</h2>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <div style={{ background: 'rgba(255,165,2,.08)', border: '1px solid rgba(255,165,2,.2)', borderRadius: 8, padding: '10px 14px', fontSize: 13 }}>
-                <div style={{ color: 'var(--text2)', marginBottom: 4 }}>Jugador: <strong style={{ color: 'var(--text)' }}>{modalComision.inscripcion.jugadores?.nombre}</strong></div>
-                <div style={{ color: 'var(--text2)' }}>Comisión automática: <strong style={{ color: 'var(--accent)', fontFamily: 'var(--mono)' }}>${modalComision.comisionAuto.toLocaleString('es-MX')}</strong></div>
-              </div>
-              <div style={{ fontSize: 13, color: 'var(--text2)', lineHeight: 1.6 }}>
-                ¿Deseas establecer una comisión personalizada para <strong style={{ color: 'var(--text)' }}>{modalComision.inscripcion.jugadores?.nombre}</strong>? Esto no afectará el cálculo de los demás jugadores.
-              </div>
-              <div className="form-group">
-                <label className="form-label">Monto cobrado al jugador ($)</label>
-                <input className="form-input" type="number" min="0" value={montoManual}
-                  onChange={e => setMontoManual(e.target.value)} autoFocus />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Comisión del coach ($)</label>
-                <input className="form-input" type="number" min="0" value={comisionManual}
-                  onChange={e => setComisionManual(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && guardarComisionManual()} />
-              </div>
-              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                <button className="btn btn-secondary" onClick={() => setModalComision(null)}>Cancelar</button>
-                <button className="btn btn-primary" onClick={guardarComisionManual}>Confirmar</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-      {toast && <div className="toast"><span style={{ color: 'var(--accent)' }}>✓</span>{toast}</div>}
+    </div>
+  )
+}
     </div>
   )
 }
