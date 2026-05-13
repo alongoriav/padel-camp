@@ -119,6 +119,8 @@ export default function Clases({ usuario }) {
   const [nuevaHora, setNuevaHora] = useState('')
   const [modalComision, setModalComision] = useState(null)
   const [comisionManual, setComisionManual] = useState('')
+  const [montoManual, setMontoManual] = useState('')
+  const [montoManual, setMontoManual] = useState('')
   const [modalNuevoJugador, setModalNuevoJugador] = useState(false)
   const [nuevoJugadorNombre, setNuevoJugadorNombre] = useState('')
   const [nuevoJugadorDesde, setNuevoJugadorDesde] = useState('clase') // 'clase' or 'detalle'
@@ -161,11 +163,14 @@ export default function Clases({ usuario }) {
 
   const guardarComisionManual = async () => {
     if (!modalComision) return
-    const valor = parseFloat(comisionManual)
-    if (isNaN(valor)) return
-    await supabase.from('inscripciones').update({ comision_override: valor }).eq('id', modalComision.inscripcion.id)
+    const valorCom = parseFloat(comisionManual)
+    const valorMonto = parseFloat(montoManual)
+    if (isNaN(valorCom)) return
+    const payload = { comision_override: valorCom }
+    if (!isNaN(valorMonto)) payload.monto_cobrado = valorMonto
+    await supabase.from('inscripciones').update(payload).eq('id', modalComision.inscripcion.id)
     setModalComision(null)
-    showToast('Comisión personalizada guardada ✓')
+    showToast('Datos guardados ✓')
     fetchAll()
   }
 
@@ -664,13 +669,14 @@ export default function Clases({ usuario }) {
                         const comFinal = i.comision_override != null ? i.comision_override : comAuto
                         const esManual = i.comision_override != null
                         return (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                            <span onClick={() => { setComisionManual(String(comFinal)); setModalComision({ inscripcion: i, comisionAuto: comAuto }) }}
-                              title="Clic para personalizar"
-                              style={{ fontFamily: 'var(--mono)', fontSize: 13, cursor: 'pointer',
-                                color: esManual ? 'var(--warn)' : 'var(--text2)', textDecoration: 'underline dotted' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ fontFamily: 'var(--mono)', fontSize: 14, color: esManual ? 'var(--warn)' : 'var(--text2)', fontWeight: esManual ? 700 : 400 }}>
                               ${comFinal.toLocaleString('es-MX')}{esManual ? ' ✏️' : ''}
                             </span>
+                            <button onClick={() => { setComisionManual(String(comFinal)); setMontoManual(String(i.monto_cobrado || 0)); setModalComision({ inscripcion: i, comisionAuto: comAuto }) }}
+                              style={{ background: 'rgba(255,165,2,.15)', border: '1px solid rgba(255,165,2,.3)', borderRadius: 6, padding: '3px 8px', cursor: 'pointer', fontSize: 11, color: 'var(--warn)', whiteSpace: 'nowrap', fontWeight: 600 }}>
+                              ✏️ Personalizar
+                            </button>
                             {esManual && (
                               <button onClick={() => quitarComisionManual(i.id)} title="Restaurar automático"
                                 style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: 'var(--text2)' }}>↩</button>
@@ -750,11 +756,15 @@ export default function Clases({ usuario }) {
                 ¿Deseas establecer una comisión personalizada para <strong style={{ color: 'var(--text)' }}>{modalComision.inscripcion.jugadores?.nombre}</strong>? Esto no afectará el cálculo de los demás jugadores.
               </div>
               <div className="form-group">
-                <label className="form-label">Monto de comisión ($)</label>
+                <label className="form-label">Monto cobrado al jugador ($)</label>
+                <input className="form-input" type="number" min="0" value={montoManual}
+                  onChange={e => setMontoManual(e.target.value)} autoFocus />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Comisión del coach ($)</label>
                 <input className="form-input" type="number" min="0" value={comisionManual}
                   onChange={e => setComisionManual(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && guardarComisionManual()}
-                  autoFocus />
+                  onKeyDown={e => e.key === 'Enter' && guardarComisionManual()} />
               </div>
               <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
                 <button className="btn btn-secondary" onClick={() => setModalComision(null)}>Cancelar</button>
