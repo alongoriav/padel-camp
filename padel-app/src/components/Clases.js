@@ -153,7 +153,9 @@ export default function Clases({ usuario }) {
 
   const numClases = form.modalidad === 'Semanal' ? fechas.length : 1
   const participantes = jugadoresClase.length || 1
-  const montoPorJugador = calcMonto(form.modalidad, participantes, numClases)
+  const pagadores = jugadoresClase.filter(j => !j.esPromo).length || 1
+  const numClases = form.modalidad === 'Semanal' ? calcFechas(form.dia, form.fecha_inicio).length : 1
+  const montoPorJugador = calcMonto(form.modalidad, pagadores, numClases)
 
   const busquedaTrimmed = busqueda.trim()
   const jugadoresFiltrados = jugadores.filter(j =>
@@ -245,10 +247,11 @@ export default function Clases({ usuario }) {
     }).select().single()
     if (!claseData) { showToast('Error al guardar'); return }
     await supabase.from('inscripciones').insert(jugadoresClase.map(j => {
-      const montoFinal = j._montoProporcional != null ? j._montoProporcional : montoPorJugador
+      const montoFinal = j.esPromo ? 0 : (j._montoProporcional != null ? j._montoProporcional : montoPorJugador)
       return {
         clase_id: claseData.id, jugador_id: j.jugador_id,
-        metodo_pago: j.metodo, pagado: j.pagado,
+        metodo_pago: j.esPromo ? 'Promo' : j.metodo,
+        pagado: j.esPromo ? true : j.pagado,
         monto_cobrado: montoFinal, mes: form.mes, anio: form.anio,
         fecha_entrada: j.fecha_entrada || null,
       }
@@ -563,17 +566,30 @@ export default function Clases({ usuario }) {
                   )}
                 </div>
                 {jugadoresClase.map(j => (
-                  <div key={j.jugador_id} style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--bg3)', borderRadius: 8, padding: '8px 12px', marginBottom: 6, border: '1px solid var(--border)' }}>
-                    <div style={{ fontWeight: 500, fontSize: 14, flex: 1 }}>{j.nombre}</div>
+                  <div key={j.jugador_id} style={{ display: 'flex', alignItems: 'center', gap: 8, background: j.esPromo ? 'rgba(255,165,2,.08)' : 'var(--bg3)', borderRadius: 8, padding: '8px 12px', marginBottom: 6, border: `1px solid ${j.esPromo ? 'rgba(255,165,2,.3)' : 'var(--border)'}` }}>
+                    <div style={{ fontWeight: 500, fontSize: 14, flex: 1 }}>
+                      {j.nombre}
+                      {j.esPromo && <span style={{ marginLeft: 6, fontSize: 11, background: 'rgba(255,165,2,.2)', color: 'var(--warn)', borderRadius: 4, padding: '1px 6px' }}>PROMO</span>}
+                    </div>
+                    {form.tipo === 'Compartida' && (
+                      <button type="button" onClick={() => setJugadoresClase(prev => prev.map(x => x.jugador_id === j.jugador_id ? { ...x, esPromo: !x.esPromo, metodo: !x.esPromo ? 'Promo' : 'Efectivo', pagado: !x.esPromo ? true : false } : x))}
+                        style={{ background: j.esPromo ? 'rgba(255,165,2,.2)' : 'var(--bg2)', border: `1px solid ${j.esPromo ? 'var(--warn)' : 'var(--border)'}`, borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 11, color: j.esPromo ? 'var(--warn)' : 'var(--text2)', fontWeight: j.esPromo ? 700 : 400, whiteSpace: 'nowrap' }}>
+                        🎁 {j.esPromo ? 'Es Promo' : 'Dar Promo'}
+                      </button>
+                    )}
+                    {!j.esPromo && (
                     <select className="form-input" value={j.metodo} style={{ maxWidth: 130 }}
                       onChange={e => setJugadoresClase(prev => prev.map(x => x.jugador_id === j.jugador_id ? { ...x, metodo: e.target.value } : x))}>
                       {METODOS.map(m => <option key={m}>{m}</option>)}
                     </select>
+                    )}
+                    {!j.esPromo && (
                     <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap' }}>
                       <input type="checkbox" checked={j.pagado}
                         onChange={e => setJugadoresClase(prev => prev.map(x => x.jugador_id === j.jugador_id ? { ...x, pagado: e.target.checked } : x))} />
                       Pagado
                     </label>
+                    )}
                     {form.tipo === 'Compartida' && (
                       <div style={{ position: 'relative' }}>
                         <button onClick={() => setJugadoresClase(prev => prev.map(x => x.jugador_id === j.jugador_id ? { ...x, _showCal: !x._showCal } : x))}
@@ -617,20 +633,24 @@ export default function Clases({ usuario }) {
               {jugadoresClase.length > 0 && (
                 <div style={{ background: 'rgba(0,229,160,.08)', border: '1px solid rgba(0,229,160,.2)', borderRadius: 8, padding: '12px 16px' }}>
                   {jugadoresClase.map(j => {
-                    const monto = j._montoProporcional != null ? j._montoProporcional : montoPorJugador
-                    const esProporcional = j._montoProporcional != null && j._montoProporcional !== montoPorJugador
+                    const monto = j.esPromo ? 0 : (j._montoProporcional != null ? j._montoProporcional : montoPorJugador)
+                    const esProporcional = !j.esPromo && j._montoProporcional != null && j._montoProporcional !== montoPorJugador
                     return (
                       <div key={j.jugador_id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginTop: 3 }}>
-                        <span style={{ color: 'var(--text2)' }}>{j.nombre} {j.fecha_entrada && <span style={{ color: 'var(--danger)', fontSize: 11 }}>desde {j.fecha_entrada}</span>}</span>
-                        <span style={{ fontFamily: 'var(--mono)', color: esProporcional ? 'var(--warn)' : 'var(--accent)', fontWeight: 700, fontSize: 15 }}>
-                          ${monto.toLocaleString('es-MX')}
+                        <span style={{ color: 'var(--text2)' }}>
+                          {j.nombre}
+                          {j.esPromo && <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--warn)' }}>🎁 Promo</span>}
+                          {j.fecha_entrada && <span style={{ color: 'var(--danger)', fontSize: 11, marginLeft: 4 }}>desde {j.fecha_entrada}</span>}
+                        </span>
+                        <span style={{ fontFamily: 'var(--mono)', color: j.esPromo ? 'var(--warn)' : esProporcional ? 'var(--warn)' : 'var(--accent)', fontWeight: 700, fontSize: 15 }}>
+                          {j.esPromo ? 'PROMO' : `$${monto.toLocaleString('es-MX')}`}
                         </span>
                       </div>
                     )
                   })}
                   <div style={{ borderTop: '1px solid rgba(0,229,160,.2)', marginTop: 8, paddingTop: 8, display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text2)' }}>
-                    <span>Precio base: ${montoPorJugador.toLocaleString('es-MX')}/jugador · {numClases} clase{numClases !== 1 ? 's' : ''}</span>
-                    <span style={{ color: 'var(--accent)', fontWeight: 600 }}>Total: ${jugadoresClase.reduce((a, j) => a + (j._montoProporcional != null ? j._montoProporcional : montoPorJugador), 0).toLocaleString('es-MX')}</span>
+                    <span>${montoPorJugador.toLocaleString('es-MX')}/jugador pagador · {numClases} clase{numClases !== 1 ? 's' : ''}</span>
+                    <span style={{ color: 'var(--accent)', fontWeight: 600 }}>Total: ${jugadoresClase.filter(j => !j.esPromo).reduce((a, j) => a + (j._montoProporcional != null ? j._montoProporcional : montoPorJugador), 0).toLocaleString('es-MX')}</span>
                   </div>
                 </div>
               )}
