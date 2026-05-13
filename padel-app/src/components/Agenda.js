@@ -81,8 +81,6 @@ export default function Agenda({ usuario }) {
   const [editClaseId, setEditClaseId] = useState(null)
   const [busquedaDetalle, setBusquedaDetalle] = useState('')
   const [fechaEntradaDetalle, setFechaEntradaDetalle] = useState('')
-  const [modalComision, setModalComision] = useState(null)
-  const [comisionManual, setComisionManual] = useState('')
   const [toast, setToast] = useState('')
   const [modalNuevoJugador, setModalNuevoJugador] = useState(false)
   const [nuevoJugadorNombre, setNuevoJugadorNombre] = useState('')
