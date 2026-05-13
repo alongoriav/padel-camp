@@ -3,7 +3,7 @@ import { supabase } from '../supabase'
 
 const DIAS = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo']
 const HORAS = ['06:00','07:00','08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00','21:00']
-const MODALIDADES = ['Semanal','Clase única','Promo']
+const MODALIDADES = ['Semanal','Clase única']
 const TIPOS = ['Privada','Compartida']
 const METODOS = ['Efectivo','Tarjeta','Transferencia','Check-in','Pendiente']
 const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
@@ -489,6 +489,10 @@ export default function Clases({ usuario }) {
                   <select className="form-input" value={form.modalidad} onChange={e => set('modalidad', e.target.value)}>
                     {MODALIDADES.map(m => <option key={m}>{m}</option>)}
                   </select>
+                  {form.tipo === 'Compartida' && (
+                    <p style={{ fontSize: 11, color: 'var(--text2)', marginTop: 4 }}>💡 Para promo individual usa el botón 🎁 por jugador</p>
+                  )}
+                  </select>
                 </div>
                 <div className="form-group">
                   <label className="form-label">Hora</label>
@@ -655,8 +659,10 @@ export default function Clases({ usuario }) {
 
               <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 4 }}>
                 <button className="btn btn-secondary" onClick={() => { setModal(false); setEditMode(false) }}>Cancelar</button>
-                <button className="btn btn-primary" onClick={guardarClase} disabled={!form.coach_id || jugadoresClase.length === 0 || !form.fecha_inicio}>
-                  Registrar clase
+                <button className="btn btn-primary" 
+                  onClick={editMode ? () => editarClase(editClaseId) : guardarClase} 
+                  disabled={!form.coach_id || jugadoresClase.length === 0 || !form.fecha_inicio}>
+                  {editMode ? '💾 Guardar cambios' : 'Registrar clase'}
                 </button>
               </div>
             </div>
