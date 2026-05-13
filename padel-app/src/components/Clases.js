@@ -50,16 +50,20 @@ function calcMontoProporcional(montoBase, fechaEntrada, fechaInicio, clasesTotal
   return Math.round(montoBase * proporcion)
 }
 
-function calcComisionAuto(inscripcion, coaches) {
-  const coach = coaches?.find(c => c.id === inscripcion.clases?.coach_id)
-  if (!coach || !inscripcion.pagado) return 0
-  const mod = inscripcion.clases?.modalidad
-  if (mod === 'Promo' || mod === 'Cortesía') return 0
+function calcComisionAuto(inscripcion, coaches, detalle) {
+  // Get coach from inscripcion join or from detalle
+  const coachId = inscripcion.clases?.coach_id || detalle?.coach_id
+  const coach = coaches?.find(c => c.id === coachId)
+  if (!coach) return 0
+  const esPromo = inscripcion.metodo_pago === 'Promo' || inscripcion.monto_cobrado === 0
+  if (!inscripcion.pagado && !esPromo) return 0
+  // For Promo: use theoretical price based on participants
   const monto = inscripcion.monto_cobrado || 0
   if (coach.esquema_comision === 'Porcentaje') return Math.round(monto * (coach.porcentaje_comision || 0))
   if (coach.esquema_comision === 'Bono') return coach.pago_extra_clase || 0
   if (coach.esquema_comision === 'Mixto') {
-    if (inscripcion.clases?.tipo === 'Privada') return Math.round(coach.tarifa_privada_fija || 0)
+    const tipo = inscripcion.clases?.tipo || detalle?.tipo
+    if (tipo === 'Privada') return Math.round(coach.tarifa_privada_fija || 0)
     return Math.round(monto * (coach.porcentaje_comision || 0))
   }
   return 0
@@ -268,7 +272,7 @@ export default function Clases({ usuario }) {
     await supabase.from('inscripciones').update(update).eq('id', ins.id)
     fetchAll()
     if (detalle) {
-      const { data } = await supabase.from('inscripciones').select('*, jugadores(nombre)').eq('clase_id', detalle.id)
+      const { data } = await supabase.from('inscripciones').select('*, jugadores(nombre), clases(coach_id, tipo, modalidad, clases_en_rango)').eq('clase_id', detalle.id)
       setDetalle(d => ({ ...d, _ins: data }))
     }
   }
@@ -751,7 +755,7 @@ export default function Clases({ usuario }) {
                     </td>
                     <td>
                       {(() => {
-                        const comAuto = calcComisionAuto(i, coaches)
+                        const comAuto = calcComisionAuto(i, coaches, detalle)
                         const comFinal = i.comision_override != null ? i.comision_override : comAuto
                         const esManual = i.comision_override != null
                         return (
