@@ -152,26 +152,34 @@ export default function Comisiones() {
         }
       })
       const cobrado = insMes.filter(i => i.pagado).reduce((a, i) => a + (i.monto_cobrado || 0), 0)
-      const comisionBruta = calcComision(coach, clasesUnicas, ingresoTeorico)
 
-      // Aplicar descuento 50% a sesiones Promo de mayo 2026 en adelante
+      // Separar sesiones normales vs Promo de mayo en adelante
       const MESES_IDX_D = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
+      const seenNormal = new Set()
       const seenPromo = new Set()
+      let sesionesNormales = 0
       let sesionesPromoDesc = 0
       insParaComision.forEach(i => {
-        const esPromo = i.metodo_pago === 'Promo' || i.clases?.modalidad === 'Promo' || i.clases?.modalidad === 'Cortesía'
-        if (!esPromo) return
-        if (seenPromo.has(i.clase_id)) return
-        seenPromo.add(i.clase_id)
+        const esPromo = i.clases?.modalidad === 'Promo' || i.clases?.modalidad === 'Cortesía'
         const mesIdx = MESES_IDX_D.indexOf((i.mes || '').toLowerCase())
         const anio = i.anio || 2026
         const esMayoOPost = anio > 2026 || (anio === 2026 && mesIdx >= 4)
-        if (esMayoOPost) sesionesPromoDesc += (i.clases?.clases_en_rango || 1)
+        if (esPromo && esMayoOPost) {
+          if (!seenPromo.has(i.clase_id)) {
+            seenPromo.add(i.clase_id)
+            sesionesPromoDesc += (i.clases?.clases_en_rango || 1)
+          }
+        } else {
+          if (!seenNormal.has(i.clase_id)) {
+            seenNormal.add(i.clase_id)
+            sesionesNormales += (i.clases?.clases_en_rango || 1)
+          }
+        }
       })
-      // Descuento = valor por sesión × sesiones con descuento × 50%
-      const comisionPorSesion = clasesUnicas > 0 ? comisionBruta / clasesUnicas : 0
-      const descuento = comisionPorSesion * sesionesPromoDesc * 0.5
-      const comision = Math.round(comisionBruta - descuento)
+      // Comisión = normal al 100% + Promo al 50%
+      const comisionNormal = calcComision(coach, sesionesNormales, ingresoTeorico)
+      const comisionPromo = Math.round(calcComision(coach, sesionesPromoDesc, 0) * 0.5)
+      const comision = comisionNormal + comisionPromo
 
       return { coach, clasesUnicas, ingresoTeorico, cobrado, comision }
     }).filter(r => r.clasesUnicas > 0 || coaches.length <= 6)
@@ -299,21 +307,32 @@ export default function Comisiones() {
           const neto = r.coach.aplica_iva ? ingresoTeoricoPDF / 1.16 : ingresoTeoricoPDF
           comisionClasesBruta = r.clasesUnicas * (r.coach.tarifa_privada_fija || 0) + neto * (r.coach.porcentaje_comision || 0)
         }
-        // Descuento 50% sobre sesiones Promo de mayo 2026 en adelante
+        // Separar sesiones normales vs Promo mayo+ para el PDF
         const MESES_IDX_PDF2 = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
+        const seenNormalPDF = new Set()
         const seenPromoPDF = new Set()
+        let sesionesNormalesPDF = 0
         let sesionesPromoDescPDF = 0
-        insCoachAll.filter(i => i.pagado || i.metodo_pago === 'Promo' || i.clases?.modalidad === 'Promo' || i.clases?.modalidad === 'Cortesía').forEach(i => {
-          const esPromo = i.metodo_pago === 'Promo' || i.clases?.modalidad === 'Promo' || i.clases?.modalidad === 'Cortesía'
-          if (!esPromo || seenPromoPDF.has(i.clase_id)) return
-          seenPromoPDF.add(i.clase_id)
+        insCoachPDF.forEach(i => {
+          const esPromo = i.clases?.modalidad === 'Promo' || i.clases?.modalidad === 'Cortesía'
           const mesIdx = MESES_IDX_PDF2.indexOf((i.mes || '').toLowerCase())
           const anio = i.anio || 2026
-          if (anio > 2026 || (anio === 2026 && mesIdx >= 4)) sesionesPromoDescPDF += (i.clases?.clases_en_rango || 1)
+          const esMayoOPost = anio > 2026 || (anio === 2026 && mesIdx >= 4)
+          if (esPromo && esMayoOPost) {
+            if (!seenPromoPDF.has(i.clase_id)) {
+              seenPromoPDF.add(i.clase_id)
+              sesionesPromoDescPDF += (i.clases?.clases_en_rango || 1)
+            }
+          } else {
+            if (!seenNormalPDF.has(i.clase_id)) {
+              seenNormalPDF.add(i.clase_id)
+              sesionesNormalesPDF += (i.clases?.clases_en_rango || 1)
+            }
+          }
         })
-        const comPorSesionPDF = r.clasesUnicas > 0 ? comisionClasesBruta / r.clasesUnicas : 0
-        const descuentoPDF = comPorSesionPDF * sesionesPromoDescPDF * 0.5
-        const comisionClases = Math.round(comisionClasesBruta - descuentoPDF)
+        const comisionNormalPDF = calcComision(r.coach, sesionesNormalesPDF, ingresoTeoricoPDF)
+        const comisionPromoPDF = Math.round(calcComision(r.coach, sesionesPromoDescPDF, 0) * 0.5)
+        const comisionClases = Math.round(comisionNormalPDF + comisionPromoPDF - baseProporcional)
         const totalAPagar = baseProporcional + comisionClases
 
         // Header
