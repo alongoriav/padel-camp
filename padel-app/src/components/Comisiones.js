@@ -540,6 +540,7 @@ export default function Comisiones() {
         }
 
         // Footer total
+        const totalSesiones = sesiones.length
         y += 6
         doc.setFillColor(15, 19, 30)
         doc.rect(M, y, W-M*2, 10, 'F')
