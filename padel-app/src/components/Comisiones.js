@@ -313,20 +313,15 @@ export default function Comisiones() {
 
         // Comisión total sobre TODAS las sesiones
         const comisionTotalPDF = calcComision(r.coach, r.clasesUnicas, ingresoTeoricoPDF)
-        // Descuento 50% para sesiones Promo de mayo en adelante
-        const MESES_IDX_PDF2 = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
-        const seenPromoPDF = new Set()
-        let sesionesPromoDescPDF = 0
-        insCoachPDF.forEach(i => {
-          const esPromo = i.clases?.modalidad === 'Promo' || i.clases?.modalidad === 'Cortesía' || i.metodo_pago === 'Promo'
-          if (!esPromo || seenPromoPDF.has(i.clase_id)) return
-          seenPromoPDF.add(i.clase_id)
-          const mesIdx = MESES_IDX_PDF2.indexOf((i.mes || '').toLowerCase())
-          const anio = i.anio || 2026
-          if (anio > 2026 || (anio === 2026 && mesIdx >= 4))
-            sesionesPromoDescPDF += contarSesiones(i.clases, pdfDesde, pdfHasta)
-        })
-        const comPorSesionPDF = r.clasesUnicas > 0 ? comisionTotalPDF / r.clasesUnicas : 0
+        // Descuento 50%: contar sesiones Promo del array ya expandido
+        const clasesIdPromo = new Set(
+          insCoachPDF
+            .filter(i => i.clases?.modalidad === 'Promo' || i.clases?.modalidad === 'Cortesía' || i.metodo_pago === 'Promo')
+            .map(i => i.clase_id)
+        )
+        const sesionesPromoDescPDF = sesiones.filter(s => clasesIdPromo.has(s.claseId)).length
+        const totalSesiones = sesiones.length
+        const comPorSesionPDF = totalSesiones > 0 ? comisionTotalPDF / totalSesiones : 0
         const descuentoPDF = Math.round(comPorSesionPDF * sesionesPromoDescPDF * 0.5)
         const totalAPagar = Math.round(comisionTotalPDF - descuentoPDF)
         const comisionClases = totalAPagar - baseProporcional
@@ -470,7 +465,8 @@ export default function Comisiones() {
                 tipo: clase.tipo,
                 jugadores: jugStr,
                 comision: comPorSesion,
-                sortKey: d.getTime()
+                sortKey: d.getTime(),
+                claseId: ins.clase_id
               })
               d.setDate(d.getDate() + 7)
             }
@@ -488,7 +484,8 @@ export default function Comisiones() {
               tipo: clase.tipo,
               jugadores: jugStr,
               comision: comPorSesion,
-              sortKey: fi ? fi.getTime() : 0
+              sortKey: fi ? fi.getTime() : 0,
+              claseId: ins.clase_id
             })
           }
         })
