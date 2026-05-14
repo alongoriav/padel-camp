@@ -502,7 +502,7 @@ export default function Comisiones() {
         y += 6
         doc.setFillColor(15, 19, 30)
         doc.rect(M, y, W-M*2, 10, 'F')
-        txt(`Total clases impartidas: ${r.clasesUnicas}`, M+4, y+6, 8, false, [120,140,170])
+        txt(`Total sesiones: ${filasClase.length}  ·  Total clases impartidas: ${filasClase.length}`, M+4, y+6, 8, false, [120,140,170])
         txt(`TOTAL A PAGAR: ${fmt2(totalAPagar)}`, W-M-4, y+6, 10, true, [0,229,160], 'right')
       })
 
