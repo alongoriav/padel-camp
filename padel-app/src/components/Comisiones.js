@@ -201,8 +201,22 @@ export default function Comisiones() {
 
       const cobrado = insMes.filter(i => i.pagado).reduce((a, i) => a + (i.monto_cobrado || 0), 0)
 
-      // Sumar comisión por inscripción — calcComisionPorIns ya incluye 50% Promo desde mayo
-      const comision = insParaComision.reduce((sum, i) => sum + calcComisionPorIns(i, coach), 0)
+      // Comisión agregada sobre total de sesiones reales
+      const comisionBruta = calcComision(coach, clasesUnicas, ingresoTeorico)
+      // Descuento proporcional por sesiones Promo de mayo en adelante
+      const seenPromo = new Set()
+      let sesionesPromo = 0
+      insParaComision.forEach(i => {
+        const esPromo = i.clases?.modalidad === 'Promo' || i.metodo_pago === 'Promo'
+        if (!esPromo || seenPromo.has(i.clase_id)) return
+        seenPromo.add(i.clase_id)
+        const mesIdx = MESES_LIST.indexOf((i.mes || '').toLowerCase())
+        const anio = i.anio || 2026
+        if (anio > 2026 || (anio === 2026 && mesIdx >= 4))
+          sesionesPromo += contarSesiones(i.clases, resumenDesde, resumenHasta)
+      })
+      const descuento = clasesUnicas > 0 ? Math.round(comisionBruta * (sesionesPromo / clasesUnicas) * 0.5) : 0
+      const comision = comisionBruta - descuento
 
       return { coach, clasesUnicas, ingresoTeorico, cobrado, comision }
     }).filter(r => r.clasesUnicas > 0 || coaches.length <= 6)
@@ -331,8 +345,22 @@ export default function Comisiones() {
           comDesde = desde ? new Date(desde + 'T00:00:00') : new Date('2026-01-01')
           comHasta = hasta ? new Date(hasta + 'T23:59:59') : new Date()
         }
-        // Sumar comisión por inscripción — igual que en pantalla, ya incluye 50% Promo
-        const totalAPagar = Math.round(insCoachPDF.reduce((sum, i) => sum + calcComisionPorIns(i, r.coach), 0))
+        // Comisión agregada sobre total de sesiones reales
+        const comisionBrutaPDF = calcComision(r.coach, r.clasesUnicas, ingresoTeoricoPDF)
+        // Descuento proporcional por sesiones Promo de mayo en adelante
+        const seenPromoPDF = new Set()
+        let sesionesPromoPDF = 0
+        insCoachPDF.forEach(i => {
+          const esPromo = i.clases?.modalidad === 'Promo' || i.metodo_pago === 'Promo'
+          if (!esPromo || seenPromoPDF.has(i.clase_id)) return
+          seenPromoPDF.add(i.clase_id)
+          const mesIdx = MESES_IDX_PDF.indexOf((i.mes || '').toLowerCase())
+          const anio = i.anio || 2026
+          if (anio > 2026 || (anio === 2026 && mesIdx >= 4))
+            sesionesPromoPDF += contarSesiones(i.clases, comDesde, comHasta)
+        })
+        const descuentoPDF = r.clasesUnicas > 0 ? Math.round(comisionBrutaPDF * (sesionesPromoPDF / r.clasesUnicas) * 0.5) : 0
+        const totalAPagar = comisionBrutaPDF - descuentoPDF
         const comisionClases = totalAPagar - baseProporcional
 
         // Header
