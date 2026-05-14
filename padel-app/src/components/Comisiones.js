@@ -84,7 +84,22 @@ export default function Comisiones() {
   }
 
   const filtrarIns = (ins) => {
-    if (modoFiltro === 'mes') return ins.filter(i => i.mes === mesSeleccionado)
+    if (modoFiltro === 'mes') {
+      const MESES_N = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
+      const mesIdx = MESES_N.indexOf(mesSeleccionado)
+      const anioN = new Date().getFullYear()
+      const mesInicio = `${anioN}-${String(mesIdx+1).padStart(2,'0')}-01`
+      const mesFin = `${anioN}-${String(mesIdx+1).padStart(2,'0')}-${new Date(anioN, mesIdx+1, 0).getDate()}`
+      return ins.filter(i => {
+        // Include if mes matches
+        if (i.mes === mesSeleccionado) return true
+        // Also include clase única with fecha_inicio in the month (even if mes is null/wrong)
+        if (i.clases?.modalidad === 'Clase única' && i.clases?.fecha_inicio) {
+          return i.clases.fecha_inicio >= mesInicio && i.clases.fecha_inicio <= mesFin
+        }
+        return false
+      })
+    }
     if (modoFiltro === 'rango') {
       return ins.filter(i => {
         const fecha = i.clases?.fecha_inicio
