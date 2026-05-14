@@ -51,6 +51,33 @@ function contarSesiones(clase, desdeDate, hastaDate) {
   return 1
 }
 
+// Misma función que Clases.js — calcula comisión por inscripción, ya incluye 50% Promo
+const MESES_IDX_COM = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
+function calcComisionPorIns(inscripcion, coach) {
+  if (!coach) return 0
+  const esPromo = inscripcion.metodo_pago === 'Promo' || inscripcion.clases?.modalidad === 'Promo'
+  if (!inscripcion.pagado && !esPromo) return 0
+  // Si tiene override manual, usar ese valor directamente
+  if (inscripcion.comision_override != null) return inscripcion.comision_override
+  let factorPromo = 1
+  if (esPromo) {
+    const mesIdx = MESES_IDX_COM.indexOf((inscripcion.mes || '').toLowerCase())
+    const anio = inscripcion.anio || 2026
+    factorPromo = (anio > 2026 || (anio === 2026 && mesIdx >= 4)) ? 0.5 : 1
+  }
+  let comision = 0
+  const tipo = inscripcion.clases?.tipo
+  if (coach.esquema_comision === 'Porcentaje') {
+    comision = Math.round((inscripcion.monto_cobrado || 0) * (coach.porcentaje_comision || 0))
+  } else if (coach.esquema_comision === 'Bono') {
+    comision = coach.pago_extra_clase || 0
+  } else if (coach.esquema_comision === 'Mixto') {
+    if (tipo === 'Privada') comision = Math.round(coach.tarifa_privada_fija || 0)
+    else comision = Math.round((inscripcion.monto_cobrado || 0) * (coach.porcentaje_comision || 0))
+  }
+  return Math.round(comision * factorPromo)
+}
+
 function calcComision(coach, clases, ingresoTeorico) {
   if (!coach) return 0
   if (coach.esquema_comision === 'Porcentaje') {
@@ -102,7 +129,7 @@ export default function Comisiones() {
   const fetchData = async () => {
     const [{ data: cs }, { data: ins }, { data: cl }] = await Promise.all([
       supabase.from('coaches').select('*').order('nombre'),
-      supabase.from('inscripciones').select('*, jugadores(nombre), clases(coach_id, tipo, modalidad, fecha_inicio, fecha_fin, dia, hora, clases_en_rango)'),
+      supabase.from('inscripciones').select('*, jugadores(nombre), clases(coach_id, tipo, modalidad, fecha_inicio, fecha_fin, dia, hora)'),
       supabase.from('clases').select('*'),
     ])
     setCoaches(cs || [])
@@ -174,27 +201,8 @@ export default function Comisiones() {
 
       const cobrado = insMes.filter(i => i.pagado).reduce((a, i) => a + (i.monto_cobrado || 0), 0)
 
-      // Calcular comisión: primero bruta sobre todas las sesiones
-      const comisionBruta = calcComision(coach, clasesUnicas, ingresoTeorico)
-
-      // Aplicar descuento 50% a sesiones Promo de mayo en adelante
-      const seenPromo = new Set()
-      let sesionesPromo = 0
-      insParaComision.forEach(i => {
-        const modalidad = i.clases?.modalidad
-        const esPromo = modalidad === 'Promo' || modalidad === 'Cortesía' || i.metodo_pago === 'Promo'
-        if (!esPromo) return
-        if (seenPromo.has(i.clase_id)) return
-        seenPromo.add(i.clase_id)
-        const mesIdx = MESES_LIST.indexOf((i.mes || '').toLowerCase())
-        const anio = i.anio || 2026
-        if (anio > 2026 || (anio === 2026 && mesIdx >= 4))
-          sesionesPromo += contarSesiones(i.clases, resumenDesde, resumenHasta)
-      })
-      // Descuento = (comisión/sesión) × sesiones Promo mayo+ × 50%
-      const comPorSesion = clasesUnicas > 0 ? comisionBruta / clasesUnicas : 0
-      const descuento = Math.round(comPorSesion * sesionesPromo * 0.5)
-      const comision = comisionBruta - descuento
+      // Sumar comisión por inscripción — calcComisionPorIns ya incluye 50% Promo desde mayo
+      const comision = insParaComision.reduce((sum, i) => sum + calcComisionPorIns(i, coach), 0)
 
       return { coach, clasesUnicas, ingresoTeorico, cobrado, comision }
     }).filter(r => r.clasesUnicas > 0 || coaches.length <= 6)
@@ -323,23 +331,8 @@ export default function Comisiones() {
           comDesde = desde ? new Date(desde + 'T00:00:00') : new Date('2026-01-01')
           comHasta = hasta ? new Date(hasta + 'T23:59:59') : new Date()
         }
-        // Comisión total sobre TODAS las sesiones reales del período
-        const comisionTotalPDF = calcComision(r.coach, r.clasesUnicas, ingresoTeoricoPDF)
-        // Descuento 50%: sumar sesiones Promo en el período usando contarSesiones
-        const seenComPromo = new Set()
-        let sesionesPromoDescPDF = 0
-        insCoachPDF.forEach(i => {
-          const esPromo = i.clases?.modalidad === 'Promo' || i.clases?.modalidad === 'Cortesía' || i.metodo_pago === 'Promo'
-          if (!esPromo || seenComPromo.has(i.clase_id)) return
-          seenComPromo.add(i.clase_id)
-          const mesIdx = MESES_IDX_PDF.indexOf((i.mes || '').toLowerCase())
-          const anio = i.anio || 2026
-          if (anio > 2026 || (anio === 2026 && mesIdx >= 4))
-            sesionesPromoDescPDF += contarSesiones(i.clases, comDesde, comHasta)
-        })
-        const comPorSesionPDF = r.clasesUnicas > 0 ? comisionTotalPDF / r.clasesUnicas : 0
-        const descuentoPDF = Math.round(comPorSesionPDF * sesionesPromoDescPDF * 0.5)
-        const totalAPagar = Math.round(comisionTotalPDF - descuentoPDF)
+        // Sumar comisión por inscripción — igual que en pantalla, ya incluye 50% Promo
+        const totalAPagar = Math.round(insCoachPDF.reduce((sum, i) => sum + calcComisionPorIns(i, r.coach), 0))
         const comisionClases = totalAPagar - baseProporcional
 
         // Header
