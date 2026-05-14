@@ -358,8 +358,8 @@ export default function Comisiones() {
           pdfDesde = new Date(anioN, mesIdx2, 1)
           pdfHasta = new Date(anioN, mesIdx2 + 1, 0)
         } else {
-          pdfDesde = desde ? new Date(desde) : new Date('2026-01-01')
-          pdfHasta = hasta ? new Date(hasta) : new Date()
+          pdfDesde = desde ? new Date(desde + 'T00:00:00') : new Date('2026-01-01T00:00:00')
+          pdfHasta = hasta ? new Date(hasta + 'T23:59:59') : new Date()
         }
 
         // Comisión por sesión diferenciada para Bono
@@ -380,8 +380,8 @@ export default function Comisiones() {
           if (clase.modalidad === 'Semanal' && clase.dia) {
             const diaSemana = DIAS_MAP_PDF[clase.dia]
             if (diaSemana === undefined) return
-            const claseInicio = new Date(clase.fecha_inicio)
-            const claseFin = clase.fecha_fin ? new Date(clase.fecha_fin) : pdfHasta
+            const claseInicio = clase.fecha_inicio ? new Date(clase.fecha_inicio + 'T12:00:00') : new Date()
+            const claseFin = clase.fecha_fin ? new Date(clase.fecha_fin + 'T23:59:59') : pdfHasta
             const rangoInicio = pdfDesde > claseInicio ? pdfDesde : claseInicio
             const rangoFin = pdfHasta < claseFin ? pdfHasta : claseFin
             const d = new Date(rangoInicio)
@@ -399,8 +399,8 @@ export default function Comisiones() {
               d.setDate(d.getDate() + 7)
             }
           } else {
-            // Clase única o Promo sin día — usar fecha_inicio
-            const fi = clase.fecha_inicio ? new Date(clase.fecha_inicio) : null
+            // Clase única o Promo sin día — usar fecha_inicio (T12:00 evita desfase UTC/CST)
+            const fi = clase.fecha_inicio ? new Date(clase.fecha_inicio + 'T12:00:00') : null
             let fechaStr = clase.dia || '—'
             if (fi && !isNaN(fi)) {
               const dd = String(fi.getDate()).padStart(2,'0')
