@@ -17,6 +17,19 @@ function calcValorTeorico(modalidad, participantes) {
   return PRECIOS_TEORICOS[p]?.['Clase única'] || 0
 }
 
+// Calcula el % de base según tramos para esquema Bono
+// Tramos: 1-20=10%, 21-30=20%, 31-40=40%, 41-50=60%, 51-54=80%, 55+=100%
+function pctTramo(clases, clasesBase) {
+  const meta = clasesBase || 55
+  if (clases >= meta) return 1.0
+  if (clases >= 51) return 0.8
+  if (clases >= 41) return 0.6
+  if (clases >= 31) return 0.4
+  if (clases >= 21) return 0.2
+  if (clases >= 1)  return 0.1
+  return 0
+}
+
 function calcComision(coach, clases, ingresoTeorico) {
   if (!coach) return 0
   if (coach.esquema_comision === 'Porcentaje') {
@@ -25,17 +38,10 @@ function calcComision(coach, clases, ingresoTeorico) {
     return base + neto * (coach.porcentaje_comision || 0)
   }
   if (coach.esquema_comision === 'Bono') {
-    const horasMin = coach.horas_base_bono || 40
-    const clasesPagadas = clases
-    const pctAlcance = clasesPagadas / horasMin
-    // Tabla de tramos
-    let pctBase
-    if (pctAlcance >= 1.0) pctBase = coach.tramo4_pct ?? 1.0
-    else if (pctAlcance > 0.6) pctBase = coach.tramo3_pct ?? 0.7
-    else if (pctAlcance > 0.3) pctBase = coach.tramo2_pct ?? 0.5
-    else pctBase = coach.tramo1_pct ?? 0.3
-    const baseProporcional = (coach.sueldo_base || 0) * pctBase
-    const extra = Math.max(0, clasesPagadas - (coach.clases_base || 0)) * (coach.pago_extra_clase || 0)
+    const clasesBase = coach.clases_base || 55
+    const pct = pctTramo(clases, clasesBase)
+    const baseProporcional = (coach.sueldo_base || 0) * pct
+    const extra = Math.max(0, clases - clasesBase) * (coach.pago_extra_clase || 0)
     return baseProporcional + extra
   }
   if (coach.esquema_comision === 'Mixto') {
@@ -285,9 +291,10 @@ export default function Comisiones() {
         let reglaCorta = ''
         if (r.coach.esquema_comision === 'Porcentaje') reglaCorta = `${(r.coach.porcentaje_comision*100).toFixed(0)}% sobre neto${r.coach.aplica_iva ? ' (÷1.16)' : ''}`
         if (r.coach.esquema_comision === 'Bono') {
-          const pct = r.clasesUnicas / (r.coach.horas_base_bono || 40)
-          const tramo = pct >= 1 ? `100%+: ${Math.round((r.coach.tramo4_pct??1)*100)}%` : pct > 0.6 ? `60-99%: ${Math.round((r.coach.tramo3_pct??0.7)*100)}%` : pct > 0.3 ? `30-60%: ${Math.round((r.coach.tramo2_pct??0.5)*100)}%` : `0-30%: ${Math.round((r.coach.tramo1_pct??0.3)*100)}%`
-          reglaCorta = `${r.clasesUnicas}/${r.coach.horas_base_bono} clases · tramo ${tramo} del base`
+          const clasesBase = r.coach.clases_base || 55
+          const pct2 = pctTramo(r.clasesUnicas, clasesBase)
+          const tramoLabel = r.clasesUnicas >= clasesBase ? `100%+: 100% del base` : r.clasesUnicas >= 51 ? `51-54 clases: 80% del base` : r.clasesUnicas >= 41 ? `41-50 clases: 60% del base` : r.clasesUnicas >= 31 ? `31-40 clases: 40% del base` : r.clasesUnicas >= 21 ? `21-30 clases: 20% del base` : `1-20 clases: 10% del base`
+          reglaCorta = `${r.clasesUnicas}/${clasesBase} clases · tramo ${tramoLabel}`
         }
         if (r.coach.esquema_comision === 'Mixto') reglaCorta = `$${r.coach.tarifa_privada_fija}/priv + ${(r.coach.porcentaje_comision*100).toFixed(0)}% comp`
         txt(reglaCorta, M+110, y+14, 7.5, false, [90,110,140])
@@ -355,8 +362,13 @@ export default function Comisiones() {
           pdfHasta = hasta ? new Date(hasta) : new Date()
         }
 
-        // Comisión por sesión = comisionClases / clasesUnicas
-        const comPorSesion = r.clasesUnicas > 0 ? Math.round(comisionClases / r.clasesUnicas) : 0
+        // Comisión por sesión diferenciada para Bono
+        // Primeras clasesBase sesiones: sueldo_base/clasesBase por sesión
+        // Sesiones extra (>clasesBase): pago_extra_clase por sesión
+        const clasesBasePDF = r.coach.clases_base || 55
+        const comPorSesionBase = r.clasesUnicas > 0 ? Math.round((r.coach.sueldo_base || 0) * pctTramo(r.clasesUnicas, clasesBasePDF) / Math.min(r.clasesUnicas, clasesBasePDF)) : 0
+        const comPorSesionExtra = r.coach.pago_extra_clase || 550
+        const comPorSesion = r.coach.esquema_comision === 'Bono' ? comPorSesionBase : (r.clasesUnicas > 0 ? Math.round(comisionClases / r.clasesUnicas) : 0)
 
         // Expand each clase into real sessions
         const sesiones = []
@@ -415,12 +427,17 @@ export default function Comisiones() {
           doc.setFillColor(...bg)
           doc.rect(M, y, W-M*2, 5.5, 'F')
           cx = M + 2
+          // Para Bono: primeras clasesBase con comPorSesionBase, extras con comPorSesionExtra
+          const esBono = r.coach.esquema_comision === 'Bono'
+          const comSesion = esBono
+            ? (i < clasesBasePDF ? comPorSesionBase : comPorSesionExtra)
+            : ses.comision
           const row = [
             { val: ses.fecha, color: [200,215,240] },
             { val: ses.hora, color: [160,175,200] },
             { val: ses.tipo, color: [140,160,190] },
             { val: ses.jugadores.substring(0, 40), color: [200,215,240] },
-            { val: fmt2(ses.comision), color: [0,229,160] },
+            { val: fmt2(comSesion), color: i >= clasesBasePDF && esBono ? [255,200,50] : [0,229,160] },
           ]
           row.forEach((cell, j) => {
             txt(String(cell.val), cx, y+4, 7, false, cell.color)
