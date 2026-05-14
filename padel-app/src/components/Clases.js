@@ -129,6 +129,7 @@ export default function Clases({ usuario }) {
   const [editandoHora, setEditandoHora] = useState(false)
   const [nuevaHora, setNuevaHora] = useState('')
   const [modalComision, setModalComision] = useState(null)
+  const [confirmarEliminar, setConfirmarEliminar] = useState(null)
   const [comisionManual, setComisionManual] = useState('')
   const [montoManual, setMontoManual] = useState('')
   const [editMode, setEditMode] = useState(false)
@@ -304,6 +305,20 @@ export default function Clases({ usuario }) {
     }))
     showToast('Clase registrada ✓')
     setModal(false); setJugadoresClase([]); setForm(emptyForm); fetchAll()
+  }
+
+  const eliminarJugadorDetalle = async (ins) => {
+    setConfirmarEliminar(ins)
+  }
+
+  const confirmarEliminarJugador = async () => {
+    const ins = confirmarEliminar
+    if (!ins) return
+    const nombre = ins.jugadores?.nombre
+    setConfirmarEliminar(null)
+    await supabase.from('inscripciones').delete().eq('id', ins.id)
+    await fetchAll()
+    showToast(`${nombre} eliminado de la clase`)
   }
 
   const togglePago = async (ins) => {
@@ -731,7 +746,17 @@ export default function Clases({ usuario }) {
                 {insDetalle.map(i => (
                   <tr key={i.id}>
                     <td style={{ fontWeight: 500 }}>
-                      {i.jugadores?.nombre}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span>{i.jugadores?.nombre}</span>
+                        {detalle?.tipo === 'Compartida' && (
+                          <button onClick={() => eliminarJugadorDetalle(i)} title="Eliminar jugador"
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: 'var(--danger)', padding: '2px 4px', lineHeight: 1, opacity: 0.7 }}
+                            onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+                            onMouseLeave={e => e.currentTarget.style.opacity = '0.7'}>
+                            🗑️
+                          </button>
+                        )}
+                      </div>
                       {i.fecha_entrada && <div style={{ fontSize: 10, color: 'var(--warn)' }}>Desde {i.fecha_entrada}</div>}
                     </td>
                     <td><EditableMonto inscripcion={i} onUpdate={fetchAll} /></td>
@@ -857,6 +882,21 @@ export default function Clases({ usuario }) {
           </div>
         </div>
       )}
+      {confirmarEliminar && (
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setConfirmarEliminar(null)}>
+          <div className="modal" style={{ maxWidth: 380 }}>
+            <h2 className="modal-title">¿Eliminar jugador?</h2>
+            <p style={{ color: 'var(--text2)', fontSize: 14, marginBottom: 20 }}>
+              ¿Estás seguro de que quieres eliminar a <strong style={{ color: 'var(--text)' }}>{confirmarEliminar.jugadores?.nombre}</strong> de esta clase? Esta acción no se puede deshacer.
+            </p>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button className="btn btn-secondary" onClick={() => setConfirmarEliminar(null)}>Cancelar</button>
+              <button className="btn" style={{ background: 'var(--danger)', color: '#fff', border: 'none' }} onClick={confirmarEliminarJugador}>Sí, eliminar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {toast && <div className="toast"><span style={{ color: 'var(--accent)' }}>✓</span>{toast}</div>}
     </div>
   )
