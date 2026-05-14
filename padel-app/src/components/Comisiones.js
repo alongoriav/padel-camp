@@ -645,7 +645,18 @@ export default function Comisiones() {
           // Hours
           const seenH = new Set()
           let horas = 0
-          insBase.forEach(i => { if (!seenH.has(i.clase_id)) { seenH.add(i.clase_id); horas += contarSesiones(i.clases, resumenDesde, resumenHasta) } })
+          insBase.forEach(i => {
+            if (!seenH.has(i.clase_id)) {
+              seenH.add(i.clase_id)
+              // Calcular rango para este mes específico
+              const MESES_XLS = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
+              const mIdxXls = MESES_XLS.indexOf(mes)
+              const anioXls = i.anio || 2026
+              const xlsDesde = mIdxXls >= 0 ? new Date(anioXls, mIdxXls, 1) : new Date(anioXls, 0, 1)
+              const xlsHasta = mIdxXls >= 0 ? new Date(anioXls, mIdxXls + 1, 0) : new Date(anioXls, 11, 31)
+              horas += contarSesiones(i.clases, xlsDesde, xlsHasta)
+            }
+          })
           // Theoretical income
           let ingreso = 0
           insBase.forEach(i => {
