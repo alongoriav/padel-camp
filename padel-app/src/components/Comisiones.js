@@ -306,14 +306,13 @@ export default function Comisiones() {
         txt('CLASES DEL PERIODO', M, y, 8, true, [80,100,130])
         y += 5
 
-        // Table header
+        // Table header - Fecha | Horario | Tipo | Jugadores | Comisión
         const cols = [
-          { label: 'Jugador', w: 50 },
-          { label: 'Día', w: 24 },
-          { label: 'Horario', w: 18 },
+          { label: 'Fecha', w: 36 },
+          { label: 'Horario', w: 16 },
           { label: 'Tipo', w: 22 },
-          { label: 'Modalidad', w: 26 },
-          { label: 'Mes', w: 18 },
+          { label: 'Jugadores', w: 76 },
+          { label: 'Comisión', w: 28 },
         ]
         doc.setFillColor(20, 26, 42)
         doc.rect(M, y, W-M*2, 6, 'F')
@@ -324,29 +323,113 @@ export default function Comisiones() {
         })
         y += 7
 
-        const insCoach = filtrarIns(inscripciones).filter(i => i.clases?.coach_id === r.coach.id)
-        insCoach.forEach((ins, i) => {
+        // Build sessions grouped by clase_id, then expand to real calendar dates
+        const DIAS_MAP_PDF = { 'Lunes':1, 'Martes':2, 'Miércoles':3, 'Jueves':4, 'Viernes':5, 'Sábado':6, 'Domingo':0 }
+        const MESES_N_PDF = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
+        const DIAS_CORTO_PDF = { 0:'Dom', 1:'Lun', 2:'Mar', 3:'Mié', 4:'Jue', 5:'Vie', 6:'Sáb' }
+        const MESES_CORTO_PDF = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']
+
+        const insCoach = filtrarIns(inscripciones).filter(i =>
+          i.clases?.coach_id === r.coach.id &&
+          (i.pagado || i.metodo_pago === 'Promo' || i.clases?.modalidad === 'Cortêsía')
+        )
+
+        // Group by clase_id
+        const claseMapPDF = {}
+        insCoach.forEach(ins => {
+          const cid = ins.clase_id
+          if (!claseMapPDF[cid]) claseMapPDF[cid] = { ins, jugadores: [] }
+          const nombre = ins.jugadores?.nombre
+          if (nombre) claseMapPDF[cid].jugadores.push(nombre)
+        })
+
+        // Date range for expansion
+        let pdfDesde, pdfHasta
+        if (modoFiltro === 'mes') {
+          const mesIdx2 = MESES_N_PDF.indexOf(mesSeleccionado)
+          const anioN = 2026
+          pdfDesde = new Date(anioN, mesIdx2, 1)
+          pdfHasta = new Date(anioN, mesIdx2 + 1, 0)
+        } else {
+          pdfDesde = desde ? new Date(desde) : new Date('2026-01-01')
+          pdfHasta = hasta ? new Date(hasta) : new Date()
+        }
+
+        // Comisión por sesión = comisionClases / clasesUnicas
+        const comPorSesion = r.clasesUnicas > 0 ? Math.round(comisionClases / r.clasesUnicas) : 0
+
+        // Expand each clase into real sessions
+        const sesiones = []
+        Object.values(claseMapPDF).forEach(({ ins, jugadores }) => {
+          const clase = ins.clases
+          if (!clase) return
+          const jugStr = jugadores.join(', ')
+
+          if (clase.modalidad === 'Semanal' && clase.dia) {
+            const diaSemana = DIAS_MAP_PDF[clase.dia]
+            if (diaSemana === undefined) return
+            const claseInicio = new Date(clase.fecha_inicio)
+            const claseFin = clase.fecha_fin ? new Date(clase.fecha_fin) : pdfHasta
+            const rangoInicio = pdfDesde > claseInicio ? pdfDesde : claseInicio
+            const rangoFin = pdfHasta < claseFin ? pdfHasta : claseFin
+            const d = new Date(rangoInicio)
+            while (d <= rangoFin && d.getDay() !== diaSemana) d.setDate(d.getDate() + 1)
+            while (d <= rangoFin) {
+              const dd = String(d.getDate()).padStart(2,'0')
+              sesiones.push({
+                fecha: dd + ' ' + MESES_CORTO_PDF[d.getMonth()] + ' ' + DIAS_CORTO_PDF[d.getDay()],
+                hora: clase.hora?.slice(0,5) || '—',
+                tipo: clase.tipo,
+                jugadores: jugStr,
+                comision: comPorSesion,
+                sortKey: d.getTime()
+              })
+              d.setDate(d.getDate() + 7)
+            }
+          } else {
+            // Clase única o Promo sin día — usar fecha_inicio
+            const fi = clase.fecha_inicio ? new Date(clase.fecha_inicio) : null
+            let fechaStr = clase.dia || '—'
+            if (fi && !isNaN(fi)) {
+              const dd = String(fi.getDate()).padStart(2,'0')
+              fechaStr = dd + ' ' + MESES_CORTO_PDF[fi.getMonth()] + ' ' + DIAS_CORTO_PDF[fi.getDay()]
+            }
+            sesiones.push({
+              fecha: fechaStr,
+              hora: clase.hora?.slice(0,5) || '—',
+              tipo: clase.tipo,
+              jugadores: jugStr,
+              comision: comPorSesion,
+              sortKey: fi ? fi.getTime() : 0
+            })
+          }
+        })
+
+        // Sort chronologically
+        sesiones.sort((a, b) => a.sortKey - b.sortKey)
+        const totalSesiones = sesiones.length
+
+        sesiones.forEach((ses, i) => {
           if (y > 270) { doc.addPage(); y = M }
           const bg = i % 2 === 0 ? [17, 21, 34] : [21, 27, 42]
           doc.setFillColor(...bg)
           doc.rect(M, y, W-M*2, 5.5, 'F')
           cx = M + 2
           const row = [
-            { val: ins.jugadores?.nombre || '—', color: [200,215,240] },
-            { val: ins.clases?.dia || '—', color: [160,175,200] },
-            { val: ins.clases?.hora?.slice(0,5) || '—', color: [160,175,200] },
-            { val: ins.clases?.tipo || '—', color: [140,160,190] },
-            { val: ins.clases?.modalidad || '—', color: ins.clases?.modalidad === 'Promo' ? [200,160,60] : [140,160,190] },
-            { val: ins.mes || '—', color: [140,160,190] },
+            { val: ses.fecha, color: [200,215,240] },
+            { val: ses.hora, color: [160,175,200] },
+            { val: ses.tipo, color: [140,160,190] },
+            { val: ses.jugadores.substring(0, 40), color: [200,215,240] },
+            { val: fmt2(ses.comision), color: [0,229,160] },
           ]
           row.forEach((cell, j) => {
-            txt(String(cell.val).substring(0,22), cx, y+4, 7.5, false, cell.color)
+            txt(String(cell.val), cx, y+4, 7, false, cell.color)
             cx += cols[j].w
           })
           y += 5.5
         })
 
-        if (insCoach.length === 0) {
+        if (sesiones.length === 0) {
           txt('Sin clases en este periodo', M+2, y+4, 8, false, [80,100,130])
           y += 8
         }
@@ -355,8 +438,8 @@ export default function Comisiones() {
         y += 6
         doc.setFillColor(15, 19, 30)
         doc.rect(M, y, W-M*2, 10, 'F')
-        txt(`Total clases impartidas: ${r.clasesUnicas}`, M+4, y+6, 8, false, [120,140,170])
-        txt(`TOTAL A PAGAR: ${fmt2(totalAPagar)}`, W-M-4, y+6, 10, true, [0,229,160], 'right')
+        txt('Total sesiones: ' + totalSesiones, M+4, y+6, 8, false, [120,140,170])
+        txt('TOTAL A PAGAR: ' + fmt2(totalAPagar), W-M-4, y+6, 10, true, [0,229,160], 'right')
       })
 
       // Page numbers
