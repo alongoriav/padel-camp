@@ -4,7 +4,7 @@ import { supabase } from '../supabase'
 const HORAS = ['06:00','07:00','08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00','21:00']
 const DIAS = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo']
 const MODALIDADES = ['Semanal','Clase única']
-const METODOS = ['Efectivo','Tarjeta','Transferencia','Check-in','Pendiente']
+const METODOS = ['Efectivo','Tarjeta','Transferencia','Check-in','Pendiente','Promo']
 const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
 const MESES_IDX = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
 
@@ -148,7 +148,7 @@ export default function ModalClase({
       setJugadoresClase(ins.map(i => ({
         jugador_id: i.jugador_id,
         nombre: i.jugadores?.nombre || jugadores.find(j => j.id === i.jugador_id)?.nombre || '',
-        metodo: i.metodo_pago === 'Promo' ? 'Efectivo' : (i.metodo_pago || 'Efectivo'),
+        metodo: i.metodo_pago || 'Efectivo',
         pagado: i.pagado || false,
         fecha_entrada: i.fecha_entrada || '',
         esPromo: i.metodo_pago === 'Promo',
