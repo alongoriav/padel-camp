@@ -3,7 +3,7 @@ import { supabase } from '../supabase'
 
 const HORAS = ['06:00','07:00','08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00','21:00']
 const DIAS_SEMANA = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo']
-const METODOS = ['Efectivo','Tarjeta','Transferencia','Check-in','Pendiente']
+const METODOS = ['Efectivo','Tarjeta','Transferencia','Check-in','Pendiente','Promo']
 const MODALIDADES = ['Semanal','Clase única']
 const TIPOS = ['Privada','Compartida']
 const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
@@ -488,10 +488,10 @@ export default function Agenda({ usuario }) {
                     <td style={{ fontFamily: 'var(--mono)', fontSize: 13 }}>${i.monto_cobrado?.toLocaleString('es-MX')}</td>
                     <td style={{ fontSize: 13 }}>{i.metodo_pago}</td>
                     <td>
-                      <button onClick={() => togglePago(i)}
-                        className={`badge ${i.pagado ? 'badge-green' : 'badge-red'}`}
-                        style={{ border: 'none', cursor: 'pointer' }}>
-                        {i.pagado ? '✅ Pagado' : '❌ Pendiente'}
+                      <button onClick={() => i.metodo_pago !== 'Promo' && togglePago(i)}
+                        className={`badge ${i.metodo_pago === 'Promo' ? 'badge-yellow' : i.pagado ? 'badge-green' : 'badge-red'}`}
+                        style={{ border: 'none', cursor: i.metodo_pago === 'Promo' ? 'default' : 'pointer' }}>
+                        {i.metodo_pago === 'Promo' ? '🎁 Promo' : i.pagado ? '✅ Pagado' : '❌ Pendiente'}
                       </button>
                     </td>
                     <td>
@@ -672,15 +672,21 @@ export default function Agenda({ usuario }) {
                 {jugadoresClase.map(j => (
                   <div key={j.jugador_id} style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--bg3)', borderRadius: 8, padding: '8px 12px', marginBottom: 6, border: '1px solid var(--border)' }}>
                     <div style={{ fontWeight: 500, fontSize: 14, flex: 1 }}>{j.nombre}</div>
-                    <select className="form-input" value={j.metodo} style={{ maxWidth: 130 }}
-                      onChange={e => setJugadoresClase(prev => prev.map(x => x.jugador_id === j.jugador_id ? { ...x, metodo: e.target.value } : x))}>
+                    <select className="form-input" value={j.metodo} style={{ maxWidth: 130, borderColor: j.metodo === 'Promo' ? 'rgba(255,165,2,.6)' : undefined }}
+                      onChange={e => {
+                        const esPromo = e.target.value === 'Promo'
+                        setJugadoresClase(prev => prev.map(x => x.jugador_id === j.jugador_id ? { ...x, metodo: e.target.value, pagado: esPromo ? true : x.pagado } : x))
+                      }}>
                       {METODOS.map(m => <option key={m}>{m}</option>)}
                     </select>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                      <input type="checkbox" checked={j.pagado}
-                        onChange={e => setJugadoresClase(prev => prev.map(x => x.jugador_id === j.jugador_id ? { ...x, pagado: e.target.checked } : x))} />
-                      Pagado
-                    </label>
+                    {j.metodo === 'Promo'
+                      ? <span style={{ fontSize: 12, color: 'rgba(255,165,2,.9)', fontWeight: 600, whiteSpace: 'nowrap' }}>🎁 Promo</span>
+                      : <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                          <input type="checkbox" checked={j.pagado}
+                            onChange={e => setJugadoresClase(prev => prev.map(x => x.jugador_id === j.jugador_id ? { ...x, pagado: e.target.checked } : x))} />
+                          Pagado
+                        </label>
+                    }
                     {formNueva.tipo === 'Compartida' && (
                       <div style={{ position: 'relative' }}>
                         <button onClick={() => setJugadoresClase(prev => prev.map(x => x.jugador_id === j.jugador_id ? { ...x, _showCal: !x._showCal } : x))}
