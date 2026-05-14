@@ -377,7 +377,7 @@ export default function Comisiones() {
           if (!clase) return
           const jugStr = jugadores.join(', ')
 
-          if (clase.modalidad === 'Semanal' && clase.dia) {
+          if ((clase.modalidad === 'Semanal' || clase.modalidad === 'Promo' || clase.modalidad === 'Cortêsía') && clase.dia) {
             const diaSemana = DIAS_MAP_PDF[clase.dia]
             if (diaSemana === undefined) return
             const claseInicio = clase.fecha_inicio ? new Date(clase.fecha_inicio + 'T12:00:00') : new Date()
