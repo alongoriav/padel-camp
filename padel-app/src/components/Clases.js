@@ -472,7 +472,7 @@ export default function Clases({ usuario }) {
       <div className="card" style={{ padding: 0 }}>
         <table className="table">
           <thead><tr>
-            {[['coach','Coach'],['tipo','Tipo'],['modalidad','Modalidad'],['horario','Horario'],['jugadores','Alumnos'],['mes','Mes'],['pagos','Pagos']].map(([col, label]) => (
+            {[['coach','Coach'],['tipo','Tipo'],['modalidad','Modalidad'],['horario','Horario'],['jugadores','Alumnos'],['pago','Pago'],['mes','Mes'],['pagos','Pagos']].map(([col, label]) => (
               <th key={col} onClick={() => toggleSort(col)} style={{ cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}>
                 {label}<SortIcon col={col} />
               </th>
@@ -480,7 +480,7 @@ export default function Clases({ usuario }) {
           </tr></thead>
           <tbody>
             {clasesFiltradas2.length === 0 && (
-              <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--text2)', padding: 32 }}>Sin clases</td></tr>
+              <tr><td colSpan={8} style={{ textAlign: 'center', color: 'var(--text2)', padding: 32 }}>Sin clases</td></tr>
             )}
             {clasesFiltradas2.map(c => {
               const ins = inscripciones.filter(i => i.clase_id === c.id)
@@ -489,7 +489,7 @@ export default function Clases({ usuario }) {
                 <tr key={c.id} style={{ cursor: 'pointer' }} onClick={() => setDetalle(c)}>
                   <td style={{ fontWeight: 600 }}>{c.coaches?.nombre}</td>
                   <td><span className={`badge ${c.tipo === 'Privada' ? 'badge-blue' : 'badge-yellow'}`}>{c.tipo}</span></td>
-                  <td><span className={`badge ${c.modalidad === 'Semanal' ? 'badge-green' : c.modalidad === 'Promo' || c.modalidad === 'Cortesía' ? 'badge-gray' : 'badge-blue'}`}>{c.modalidad}</span></td>
+                  <td><span className={`badge ${(c.modalidad === 'Semanal' || c.modalidad === 'Promo') ? 'badge-green' : c.modalidad === 'Cortesía' ? 'badge-gray' : 'badge-blue'}`}>{c.modalidad === 'Promo' ? 'Semanal' : c.modalidad}</span></td>
                   <td style={{ fontSize: 13 }}>
                     {c.dia && <span>{c.dia} </span>}
                     <span style={{ fontFamily: 'var(--mono)' }}>{c.hora?.slice(0,5)}</span>
@@ -501,6 +501,29 @@ export default function Clases({ usuario }) {
                           {ins.map(i => i.jugadores?.nombre).filter(Boolean).join(', ')}
                         </span>
                     }
+                  </td>
+                  <td style={{ fontSize: 13 }}>
+                    {(() => {
+                      const promos = ins.filter(i => i.metodo_pago === 'Promo')
+                      const otros = ins.filter(i => i.metodo_pago !== 'Promo')
+                      return (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+                          {promos.map(i => (
+                            <span key={i.id} style={{ fontSize: 11, background: 'rgba(255,165,2,.15)', color: 'rgba(255,165,2,.9)', borderRadius: 4, padding: '1px 6px', fontWeight: 600 }}>
+                              🎁 {i.jugadores?.nombre?.split(' ')[0]}
+                            </span>
+                          ))}
+                          {otros.length > 0 && promos.length === 0 && (
+                            <span style={{ color: 'var(--text2)', fontSize: 12 }}>
+                              {[...new Set(otros.map(i => i.metodo_pago))].join(', ')}
+                            </span>
+                          )}
+                          {otros.length > 0 && promos.length > 0 && (
+                            <span style={{ color: 'var(--text2)', fontSize: 12 }}>+{otros.length}</span>
+                          )}
+                        </div>
+                      )
+                    })()}
                   </td>
                   <td style={{ fontSize: 13, textTransform: 'capitalize' }}>{ins[0]?.mes || '—'}</td>
                   <td><span className={`badge ${pagados === ins.length && ins.length > 0 ? 'badge-green' : pagados > 0 ? 'badge-yellow' : 'badge-red'}`}>{pagados}/{ins.length}</span></td>
