@@ -106,15 +106,15 @@ export default function Comisiones() {
         if (modalidad === 'Promo' || modalidad === 'Cortesía') return true
         return i.pagado
       })
-      // Sumar horas reales (clases_en_rango) por clase única
-      // Sumar horas reales (clases_en_rango) por clase única pagada
+      // Contar sesiones reales: cada inscripción pagada = 1 sesión
+      // Para clases compartidas, contar la clase UNA sola vez (no por jugador)
       const clasesUnicas = (() => {
         const seen = new Set()
         let total = 0
         insParaComision.forEach(i => {
           if (!seen.has(i.clase_id)) {
             seen.add(i.clase_id)
-            total += (i.clases?.clases_en_rango || 1)
+            total += 1
           }
         })
         return total
@@ -434,7 +434,7 @@ export default function Comisiones() {
           // Hours
           const seenH = new Set()
           let horas = 0
-          insBase.forEach(i => { if (!seenH.has(i.clase_id)) { seenH.add(i.clase_id); horas += i.clases?.clases_en_rango || 1 } })
+          insBase.forEach(i => { if (!seenH.has(i.clase_id)) { seenH.add(i.clase_id); horas += 1 } })
           // Theoretical income
           let ingreso = 0
           insBase.forEach(i => {
