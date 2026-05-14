@@ -171,20 +171,26 @@ export default function Agenda({ usuario }) {
 
   const diasSemana = DIAS_SEMANA.map((d, i) => ({ nombre: d, fecha: addDays(semana, i) }))
 
+  const fmtDate = (d) => {
+    const y = d.getFullYear()
+    const m = String(d.getMonth()+1).padStart(2,'0')
+    const day = String(d.getDate()).padStart(2,'0')
+    return `${y}-${m}-${day}`
+  }
+
   const getClasesEnSlot = (dia, hora) => {
     return clases.filter(c => {
       const horaClase = c.hora?.slice(0,5)
       if (horaClase !== hora) return false
       if (c.modalidad === 'Semanal') return c.dia === dia
       if (c.modalidad === 'Promo' || c.modalidad === 'Cortesía') {
-        // Si tiene día asignado usar día, sino usar fecha_inicio
         if (c.dia) return c.dia === dia
         const fechaDia = diasSemana.find(d => d.nombre === dia)?.fecha
-        return c.fecha_inicio === fechaDia?.toISOString().split('T')[0]
+        return c.fecha_inicio === fmtDate(fechaDia)
       }
       if (c.modalidad === 'Clase única') {
         const fechaDia = diasSemana.find(d => d.nombre === dia)?.fecha
-        return c.fecha_inicio === fechaDia?.toISOString().split('T')[0]
+        return c.fecha_inicio === fmtDate(fechaDia)
       }
       return false
     })
