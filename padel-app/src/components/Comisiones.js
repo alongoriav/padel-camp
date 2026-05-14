@@ -492,7 +492,6 @@ export default function Comisiones() {
 
         // Sort chronologically
         sesiones.sort((a, b) => a.sortKey - b.sortKey)
-        const totalSesiones = sesiones.length
 
         sesiones.forEach((ses, i) => {
           if (y > 270) { doc.addPage(); y = M }
