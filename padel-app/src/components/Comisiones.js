@@ -106,14 +106,46 @@ export default function Comisiones() {
         if (modalidad === 'Promo' || modalidad === 'Cortesía') return true
         return i.pagado
       })
-      // Contar sesiones reales: cada inscripción pagada = 1 sesión
-      // Para clases compartidas, contar la clase UNA sola vez (no por jugador)
+      // Contar sesiones reales: para clases Semanales, contar cuántas fechas
+      // del día de la semana cayeron en el mes/rango. Para Clase única = 1.
       const clasesUnicas = (() => {
         const seen = new Set()
         let total = 0
         insParaComision.forEach(i => {
-          if (!seen.has(i.clase_id)) {
-            seen.add(i.clase_id)
+          if (seen.has(i.clase_id)) return
+          seen.add(i.clase_id)
+          const clase = i.clases
+          if (!clase) return
+          if (clase.modalidad === 'Semanal' || clase.modalidad === 'Promo') {
+            // Calcular fechas reales del día en el período
+            const DIAS_MAP = { Lunes:1, Martes:2, Miércoles:3, Jueves:4, Viernes:5, Sábado:6, Domingo:0 }
+            const diaSemana = DIAS_MAP[clase.dia]
+            if (diaSemana === undefined) { total += 1; return }
+            // Determinar rango del período
+            let desde_d, hasta_d
+            if (modoFiltro === 'mes') {
+              const MESES_N = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
+              const mesIdx = MESES_N.indexOf(mesSeleccionado)
+              const anioN = new Date().getFullYear()
+              desde_d = new Date(anioN, mesIdx, 1)
+              hasta_d = new Date(anioN, mesIdx + 1, 0)
+            } else {
+              desde_d = desde ? new Date(desde) : new Date(clase.fecha_inicio)
+              hasta_d = hasta ? new Date(hasta) : new Date(clase.fecha_fin || clase.fecha_inicio)
+            }
+            // Intersect with class date range
+            const claseInicio = new Date(clase.fecha_inicio)
+            const claseFin = clase.fecha_fin ? new Date(clase.fecha_fin) : hasta_d
+            const rangoInicio = desde_d > claseInicio ? desde_d : claseInicio
+            const rangoFin = hasta_d < claseFin ? hasta_d : claseFin
+            // Count occurrences of the weekday in range
+            let count = 0
+            const d = new Date(rangoInicio)
+            // Move to first occurrence of weekday
+            while (d.getDay() !== diaSemana && d <= rangoFin) d.setDate(d.getDate() + 1)
+            while (d <= rangoFin) { count++; d.setDate(d.getDate() + 7) }
+            total += count || 1
+          } else {
             total += 1
           }
         })
@@ -431,10 +463,36 @@ export default function Comisiones() {
             const mod = i.clases?.modalidad
             return mod === 'Promo' || mod === 'Cortesía' || i.pagado
           })
-          // Hours
+          // Hours - calculate real sessions from calendar
           const seenH = new Set()
           let horas = 0
-          insBase.forEach(i => { if (!seenH.has(i.clase_id)) { seenH.add(i.clase_id); horas += 1 } })
+          insBase.forEach(i => {
+            if (seenH.has(i.clase_id)) return
+            seenH.add(i.clase_id)
+            const clase = i.clases
+            if (!clase) { horas += 1; return }
+            if (clase.modalidad === 'Semanal' || clase.modalidad === 'Promo') {
+              const DIAS_MAP = { Lunes:1, Martes:2, Miércoles:3, Jueves:4, Viernes:5, Sábado:6, Domingo:0 }
+              const diaSemana = DIAS_MAP[clase.dia]
+              if (diaSemana === undefined) { horas += 1; return }
+              const MESES_N = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
+              const mesIdx2 = MESES_N.indexOf(mes)
+              const anio2 = i.anio || 2026
+              const mesInicio = new Date(anio2, mesIdx2, 1)
+              const mesFin = new Date(anio2, mesIdx2 + 1, 0)
+              const claseInicio = new Date(clase.fecha_inicio)
+              const claseFin = clase.fecha_fin ? new Date(clase.fecha_fin) : mesFin
+              const rangoInicio = mesInicio > claseInicio ? mesInicio : claseInicio
+              const rangoFin = mesFin < claseFin ? mesFin : claseFin
+              let count = 0
+              const d = new Date(rangoInicio)
+              while (d.getDay() !== diaSemana && d <= rangoFin) d.setDate(d.getDate() + 1)
+              while (d <= rangoFin) { count++; d.setDate(d.getDate() + 7) }
+              horas += count || 1
+            } else {
+              horas += 1
+            }
+          })
           // Theoretical income
           let ingreso = 0
           insBase.forEach(i => {
