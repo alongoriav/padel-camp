@@ -95,8 +95,14 @@ export default function Agenda({ usuario }) {
   }, [formNueva.dia, formNueva.fecha_inicio, formNueva.modalidad])
 
   const fetchData = async () => {
-    const lunes = semana.toISOString().split('T')[0]
-    const domingo = addDays(semana, 6).toISOString().split('T')[0]
+    const fmtDate = (d) => {
+      const y = d.getFullYear()
+      const m = String(d.getMonth()+1).padStart(2,'0')
+      const day = String(d.getDate()).padStart(2,'0')
+      return `${y}-${m}-${day}`
+    }
+    const lunes = fmtDate(semana)
+    const domingo = fmtDate(addDays(semana, 6))
     const [{ data: cs }, { data: cl }, { data: js }] = await Promise.all([
       supabase.from('coaches').select('*').eq('activo', true).order('nombre'),
       supabase.from('clases').select('*, coaches(nombre), inscripciones(*, jugadores(nombre))')
