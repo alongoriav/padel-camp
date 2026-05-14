@@ -77,6 +77,7 @@ export default function Agenda({ usuario }) {
   const [busquedaDetalle, setBusquedaDetalle] = useState('')
   const [fechaEntradaDetalle, setFechaEntradaDetalle] = useState('')
   const [modalComision, setModalComision] = useState(null)
+  const [confirmarEliminar, setConfirmarEliminar] = useState(null)
   const [montoManual, setMontoManual] = useState('')
   const [comisionManual, setComisionManual] = useState('')
   const [toast, setToast] = useState('')
@@ -229,6 +230,22 @@ export default function Agenda({ usuario }) {
     setBusqueda('')
     setFechasNueva([])
     setModalNueva(true)
+  }
+
+  const eliminarJugadorDetalle = async (ins) => {
+    setConfirmarEliminar(ins)
+  }
+
+  const confirmarEliminarJugador = async () => {
+    const ins = confirmarEliminar
+    if (!ins) return
+    const nombre = ins.jugadores?.nombre
+    setConfirmarEliminar(null)
+    await supabase.from('inscripciones').delete().eq('id', ins.id)
+    await fetchData()
+    const { data } = await supabase.from('inscripciones').select('*, jugadores(nombre)').eq('clase_id', ins.clase_id)
+    setInscripcionesDetalle(data || [])
+    showToast(`${nombre} eliminado de la clase`)
   }
 
   const togglePago = async (ins) => {
@@ -455,7 +472,19 @@ export default function Agenda({ usuario }) {
               <tbody>
                 {inscripcionesDetalle.map(i => (
                   <tr key={i.id}>
-                    <td style={{ fontWeight: 500 }}>{i.jugadores?.nombre}</td>
+                    <td style={{ fontWeight: 500 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span>{i.jugadores?.nombre}</span>
+                        {claseSeleccionada?.tipo === 'Compartida' && (
+                          <button onClick={() => eliminarJugadorDetalle(i)} title="Eliminar jugador"
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: 'var(--danger)', padding: '2px 4px', lineHeight: 1, opacity: 0.7 }}
+                            onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+                            onMouseLeave={e => e.currentTarget.style.opacity = '0.7'}>
+                            🗑️
+                          </button>
+                        )}
+                      </div>
+                    </td>
                     <td style={{ fontFamily: 'var(--mono)', fontSize: 13 }}>${i.monto_cobrado?.toLocaleString('es-MX')}</td>
                     <td style={{ fontSize: 13 }}>{i.metodo_pago}</td>
                     <td>
@@ -775,6 +804,21 @@ export default function Agenda({ usuario }) {
           </div>
         </div>
       )}
+      {confirmarEliminar && (
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setConfirmarEliminar(null)}>
+          <div className="modal" style={{ maxWidth: 380 }}>
+            <h2 className="modal-title">¿Eliminar jugador?</h2>
+            <p style={{ color: 'var(--text2)', fontSize: 14, marginBottom: 20 }}>
+              ¿Estás seguro de que quieres eliminar a <strong style={{ color: 'var(--text)' }}>{confirmarEliminar.jugadores?.nombre}</strong> de esta clase? Esta acción no se puede deshacer.
+            </p>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button className="btn btn-secondary" onClick={() => setConfirmarEliminar(null)}>Cancelar</button>
+              <button className="btn" style={{ background: 'var(--danger)', color: '#fff', border: 'none' }} onClick={confirmarEliminarJugador}>Sí, eliminar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {toast && <div className="toast"><span style={{ color: 'var(--accent)' }}>✓</span>{toast}</div>}
     </div>
   )
