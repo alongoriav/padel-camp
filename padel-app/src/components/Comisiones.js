@@ -110,7 +110,7 @@ export default function Comisiones() {
       const insParaComision = insMes.filter(i => {
         if (i.metodo_pago === 'Promo') return true
         const modalidad = i.clases?.modalidad
-        if (modalidad === 'Cortesía') return true
+        if (modalidad === 'Promo' || modalidad === 'Cortesía') return true
         return i.pagado
       })
       // Sumar horas reales (clases_en_rango) por clase única
@@ -126,12 +126,26 @@ export default function Comisiones() {
         })
         return total
       })()
+      const MESES_IDX_C = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
       let ingresoTeorico = 0
       insParaComision.forEach(i => {
         const modalidad = i.clases?.modalidad
+        const esPromoMetodo = i.metodo_pago === 'Promo'
+        const esPromoModalidad = modalidad === 'Promo' || modalidad === 'Cortesía'
         const p = insMes.filter(x => x.clase_id === i.clase_id).length
-        if (modalidad === 'Promo' || modalidad === 'Cortesía') {
-          ingresoTeorico += calcValorTeorico(modalidad, p)
+        // Factor 50% para Promo desde mayo 2026
+        let factorPromo = 1
+        if (esPromoMetodo || esPromoModalidad) {
+          const mesIdx = MESES_IDX_C.indexOf((i.mes || '').toLowerCase())
+          const anio = i.anio || 2026
+          factorPromo = (anio > 2026 || (anio === 2026 && mesIdx >= 4)) ? 0.5 : 1
+        }
+        if (esPromoModalidad) {
+          ingresoTeorico += calcValorTeorico(modalidad, p) * factorPromo
+        } else if (esPromoMetodo) {
+          // Promo por metodo_pago: usar valor teórico con factor
+          const monto = calcValorTeorico(modalidad, p)
+          ingresoTeorico += monto * factorPromo
         } else {
           const monto = i.monto_cobrado && i.monto_cobrado > 0 ? i.monto_cobrado : calcValorTeorico(modalidad, p)
           ingresoTeorico += monto
@@ -226,16 +240,28 @@ export default function Comisiones() {
         // Recalcular ingreso teórico para este coach en el periodo
         const insCoachAll = filtrarIns(inscripciones).filter(i => i.clases?.coach_id === r.coach.id)
         const insCoachPDF = insCoachAll.filter(i => {
+          if (i.metodo_pago === 'Promo') return true
           const modalidad = i.clases?.modalidad
           if (modalidad === 'Promo' || modalidad === 'Cortesía') return true
           return i.pagado
         })
+        const MESES_IDX_PDF = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
         let ingresoTeoricoPDF = 0
         insCoachPDF.forEach(i => {
           const modalidad = i.clases?.modalidad
+          const esPromoMetodo = i.metodo_pago === 'Promo'
+          const esPromoModalidad = modalidad === 'Promo' || modalidad === 'Cortesía'
           const p = insCoachAll.filter(x => x.clase_id === i.clase_id).length
-          if (modalidad === 'Promo' || modalidad === 'Cortesía') {
-            ingresoTeoricoPDF += calcValorTeorico(modalidad, p)
+          let factorP = 1
+          if (esPromoMetodo || esPromoModalidad) {
+            const mesIdx = MESES_IDX_PDF.indexOf((i.mes || '').toLowerCase())
+            const anio = i.anio || 2026
+            factorP = (anio > 2026 || (anio === 2026 && mesIdx >= 4)) ? 0.5 : 1
+          }
+          if (esPromoModalidad) {
+            ingresoTeoricoPDF += calcValorTeorico(modalidad, p) * factorP
+          } else if (esPromoMetodo) {
+            ingresoTeoricoPDF += calcValorTeorico(modalidad, p) * factorP
           } else {
             const monto = i.monto_cobrado && i.monto_cobrado > 0 ? i.monto_cobrado : calcValorTeorico(modalidad, p)
             ingresoTeoricoPDF += monto
@@ -338,7 +364,7 @@ export default function Comisiones() {
 
         const insCoach = filtrarIns(inscripciones).filter(i =>
           i.clases?.coach_id === r.coach.id &&
-          (i.pagado || i.metodo_pago === 'Promo' || i.clases?.modalidad === 'Cortêsía')
+          (i.pagado || i.metodo_pago === 'Promo' || i.clases?.modalidad === 'Promo' || i.clases?.modalidad === 'Cortesía')
         )
 
         // Group by clase_id
