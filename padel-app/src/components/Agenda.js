@@ -475,7 +475,7 @@ export default function Agenda({ usuario }) {
                     <td style={{ fontWeight: 500 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <span>{i.jugadores?.nombre}</span>
-                        {claseSeleccionada?.tipo === 'Compartida' && (
+                        {detalleClase?.tipo === 'Compartida' && (
                           <button onClick={() => eliminarJugadorDetalle(i)} title="Eliminar jugador"
                             style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: 'var(--danger)', padding: '2px 4px', lineHeight: 1, opacity: 0.7 }}
                             onMouseEnter={e => e.currentTarget.style.opacity = '1'}
