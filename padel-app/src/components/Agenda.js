@@ -4,7 +4,7 @@ import { supabase } from '../supabase'
 const HORAS = ['06:00','07:00','08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00','21:00']
 const DIAS_SEMANA = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo']
 const METODOS = ['Efectivo','Tarjeta','Transferencia','Check-in','Pendiente']
-const MODALIDADES = ['Semanal','Clase única','Promo']
+const MODALIDADES = ['Semanal','Clase única']
 const TIPOS = ['Privada','Compartida']
 const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
 
@@ -77,6 +77,7 @@ export default function Agenda({ usuario }) {
   const [busquedaDetalle, setBusquedaDetalle] = useState('')
   const [fechaEntradaDetalle, setFechaEntradaDetalle] = useState('')
   const [modalComision, setModalComision] = useState(null)
+  const [montoManual, setMontoManual] = useState('')
   const [comisionManual, setComisionManual] = useState('')
   const [toast, setToast] = useState('')
   const [modalNuevoJugador, setModalNuevoJugador] = useState(false)
@@ -134,28 +135,39 @@ export default function Agenda({ usuario }) {
     showToast(`${nombre} creado y agregado ✓`)
   }
 
+  const MESES_IDX_A = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
   const calcComisionAuto = (inscripcion) => {
     const coach = coaches?.find(c => c.id === detalleClase?.coach_id)
-    if (!coach || !inscripcion.pagado) return 0
-    const mod = detalleClase?.modalidad
-    if (mod === 'Promo' || mod === 'Cortesía') return 0
+    if (!coach) return 0
+    const esPromo = inscripcion.metodo_pago === 'Promo'
+    if (!inscripcion.pagado && !esPromo) return 0
     const monto = inscripcion.monto_cobrado || 0
-    if (coach.esquema_comision === 'Porcentaje') return Math.round(monto * (coach.porcentaje_comision || 0))
-    if (coach.esquema_comision === 'Bono') return coach.pago_extra_clase || 0
-    if (coach.esquema_comision === 'Mixto') {
-      if (detalleClase?.tipo === 'Privada') return Math.round(coach.tarifa_privada_fija || 0)
-      return Math.round(monto * (coach.porcentaje_comision || 0))
+    let factorPromo = 1
+    if (esPromo) {
+      const mesIdx = MESES_IDX_A.indexOf((inscripcion.mes || '').toLowerCase())
+      const anio = inscripcion.anio || 2026
+      factorPromo = (anio > 2026 || (anio === 2026 && mesIdx >= 4)) ? 0.5 : 1
     }
-    return 0
+    let comision = 0
+    if (coach.esquema_comision === 'Porcentaje') comision = Math.round(monto * (coach.porcentaje_comision || 0))
+    else if (coach.esquema_comision === 'Bono') comision = coach.pago_extra_clase || 0
+    else if (coach.esquema_comision === 'Mixto') {
+      if (detalleClase?.tipo === 'Privada') comision = Math.round(coach.tarifa_privada_fija || 0)
+      else comision = Math.round(monto * (coach.porcentaje_comision || 0))
+    }
+    return Math.round(comision * (esPromo ? factorPromo : 1))
   }
 
   const guardarComisionManual = async () => {
     if (!modalComision) return
-    const valor = parseFloat(comisionManual)
-    if (isNaN(valor)) return
-    await supabase.from('inscripciones').update({ comision_override: valor }).eq('id', modalComision.inscripcion.id)
+    const valorCom = parseFloat(comisionManual)
+    const valorMonto = parseFloat(montoManual)
+    if (isNaN(valorCom)) return
+    const payload = { comision_override: valorCom }
+    if (!isNaN(valorMonto)) payload.monto_cobrado = valorMonto
+    await supabase.from('inscripciones').update(payload).eq('id', modalComision.inscripcion.id)
     setModalComision(null)
-    showToast('Comisión personalizada guardada ✓')
+    showToast('Datos guardados ✓')
     const { data } = await supabase.from('inscripciones').select('*, jugadores(nombre)').eq('clase_id', detalleClase.id)
     setInscripcionesDetalle(data || [])
   }
@@ -171,13 +183,6 @@ export default function Agenda({ usuario }) {
 
   const diasSemana = DIAS_SEMANA.map((d, i) => ({ nombre: d, fecha: addDays(semana, i) }))
 
-  const fmtDate = (d) => {
-    const y = d.getFullYear()
-    const m = String(d.getMonth()+1).padStart(2,'0')
-    const day = String(d.getDate()).padStart(2,'0')
-    return `${y}-${m}-${day}`
-  }
-
   const getClasesEnSlot = (dia, hora) => {
     return clases.filter(c => {
       const horaClase = c.hora?.slice(0,5)
@@ -186,11 +191,19 @@ export default function Agenda({ usuario }) {
       if (c.modalidad === 'Promo' || c.modalidad === 'Cortesía') {
         if (c.dia) return c.dia === dia
         const fechaDia = diasSemana.find(d => d.nombre === dia)?.fecha
-        return c.fecha_inicio === fmtDate(fechaDia)
+        if (!fechaDia) return false
+        const y = fechaDia.getFullYear()
+        const m = String(fechaDia.getMonth()+1).padStart(2,'0')
+        const day = String(fechaDia.getDate()).padStart(2,'0')
+        return c.fecha_inicio === `${y}-${m}-${day}`
       }
       if (c.modalidad === 'Clase única') {
         const fechaDia = diasSemana.find(d => d.nombre === dia)?.fecha
-        return c.fecha_inicio === fmtDate(fechaDia)
+        if (!fechaDia) return false
+        const y = fechaDia.getFullYear()
+        const m = String(fechaDia.getMonth()+1).padStart(2,'0')
+        const day = String(fechaDia.getDate()).padStart(2,'0')
+        return c.fecha_inicio === `${y}-${m}-${day}`
       }
       return false
     })
@@ -458,15 +471,16 @@ export default function Agenda({ usuario }) {
                         const comFinal = i.comision_override != null ? i.comision_override : comAuto
                         const esManual = i.comision_override != null
                         return (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                            <span onClick={() => { setComisionManual(String(comFinal)); setModalComision({ inscripcion: i, comisionAuto: comAuto }) }}
-                              title="Clic para personalizar"
-                              style={{ fontFamily: 'var(--mono)', fontSize: 13, cursor: 'pointer',
-                                color: esManual ? 'var(--warn)' : 'var(--text2)', textDecoration: 'underline dotted' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ fontFamily: 'var(--mono)', fontSize: 13, color: esManual ? 'var(--warn)' : 'var(--text2)', fontWeight: esManual ? 700 : 400 }}>
                               ${comFinal.toLocaleString('es-MX')}{esManual ? ' ✏️' : ''}
                             </span>
+                            <button onClick={() => { setComisionManual(String(comFinal)); setMontoManual(String(i.monto_cobrado || 0)); setModalComision({ inscripcion: i, comisionAuto: comAuto }) }}
+                              style={{ background: 'rgba(255,165,2,.15)', border: '1px solid rgba(255,165,2,.3)', borderRadius: 6, padding: '3px 8px', cursor: 'pointer', fontSize: 11, color: 'var(--warn)', whiteSpace: 'nowrap', fontWeight: 600 }}>
+                              ✏️ Personalizar
+                            </button>
                             {esManual && (
-                              <button onClick={() => quitarComisionManual(i.id)} title="Restaurar automático"
+                              <button onClick={() => quitarComisionManual(i.id)} title="Restaurar"
                                 style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: 'var(--text2)' }}>↩</button>
                             )}
                           </div>
@@ -568,6 +582,10 @@ export default function Agenda({ usuario }) {
                   <label className="form-label">Modalidad</label>
                   <select className="form-input" value={formNueva.modalidad} onChange={e => setFormNueva(f => ({ ...f, modalidad: e.target.value }))}>
                     {MODALIDADES.map(m => <option key={m}>{m}</option>)}
+                  </select>
+                  {formNueva.tipo === 'Compartida' && (
+                    <p style={{ fontSize: 11, color: 'var(--text2)', marginTop: 4 }}>💡 Para promo individual usa el botón 🎁 por jugador</p>
+                  )
                   </select>
                 </div>
                 <div className="form-group">
@@ -739,15 +757,16 @@ export default function Agenda({ usuario }) {
                 <div style={{ color: 'var(--text2)', marginBottom: 4 }}>Jugador: <strong style={{ color: 'var(--text)' }}>{modalComision.inscripcion.jugadores?.nombre}</strong></div>
                 <div style={{ color: 'var(--text2)' }}>Comisión automática: <strong style={{ color: 'var(--accent)', fontFamily: 'var(--mono)' }}>${modalComision.comisionAuto.toLocaleString('es-MX')}</strong></div>
               </div>
-              <div style={{ fontSize: 13, color: 'var(--text2)', lineHeight: 1.6 }}>
-                ¿Deseas establecer una comisión personalizada para <strong style={{ color: 'var(--text)' }}>{modalComision.inscripcion.jugadores?.nombre}</strong>? Esto no afectará el cálculo de los demás jugadores.
+              <div className="form-group">
+                <label className="form-label">Monto cobrado al jugador ($)</label>
+                <input className="form-input" type="number" min="0" value={montoManual}
+                  onChange={e => setMontoManual(e.target.value)} autoFocus />
               </div>
               <div className="form-group">
-                <label className="form-label">Monto de comisión ($)</label>
+                <label className="form-label">Comisión del coach ($)</label>
                 <input className="form-input" type="number" min="0" value={comisionManual}
                   onChange={e => setComisionManual(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && guardarComisionManual()}
-                  autoFocus />
+                  onKeyDown={e => e.key === 'Enter' && guardarComisionManual()} />
               </div>
               <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
                 <button className="btn btn-secondary" onClick={() => setModalComision(null)}>Cancelar</button>
