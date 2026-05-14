@@ -30,6 +30,27 @@ function pctTramo(clases, clasesBase) {
   return 0
 }
 
+// Cuenta las sesiones reales de una clase en un rango de fechas
+// (misma lógica que el PDF — no depende de clases_en_rango)
+function contarSesiones(clase, desdeDate, hastaDate) {
+  if (!clase) return 1
+  const DIAS_MAP = { 'Lunes':1, 'Martes':2, 'Miércoles':3, 'Jueves':4, 'Viernes':5, 'Sábado':6, 'Domingo':0 }
+  if ((clase.modalidad === 'Semanal' || clase.modalidad === 'Promo' || clase.modalidad === 'Cortesía') && clase.dia) {
+    const diaSemana = DIAS_MAP[clase.dia]
+    if (diaSemana === undefined) return 1
+    const claseInicio = new Date((clase.fecha_inicio || '') + 'T12:00:00')
+    const claseFin = clase.fecha_fin ? new Date(clase.fecha_fin + 'T12:00:00') : hastaDate
+    const desde = claseInicio > desdeDate ? claseInicio : desdeDate
+    const hasta = claseFin < hastaDate ? claseFin : hastaDate
+    let count = 0
+    const d = new Date(desde)
+    while (d <= hasta && d.getDay() !== diaSemana) d.setDate(d.getDate() + 1)
+    while (d <= hasta) { count++; d.setDate(d.getDate() + 7) }
+    return count || 1
+  }
+  return 1
+}
+
 function calcComision(coach, clases, ingresoTeorico) {
   if (!coach) return 0
   if (coach.esquema_comision === 'Porcentaje') {
@@ -81,7 +102,7 @@ export default function Comisiones() {
   const fetchData = async () => {
     const [{ data: cs }, { data: ins }, { data: cl }] = await Promise.all([
       supabase.from('coaches').select('*').order('nombre'),
-      supabase.from('inscripciones').select('*, jugadores(nombre), clases(coach_id, tipo, modalidad, fecha_inicio, dia, hora, clases_en_rango)'),
+      supabase.from('inscripciones').select('*, jugadores(nombre), clases(coach_id, tipo, modalidad, fecha_inicio, fecha_fin, dia, hora, clases_en_rango)'),
       supabase.from('clases').select('*'),
     ])
     setCoaches(cs || [])
@@ -105,6 +126,16 @@ export default function Comisiones() {
 
   const calcResumen = () => {
     const MESES_LIST = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
+    // Rango de fechas para contar sesiones reales
+    let resumenDesde, resumenHasta
+    if (modoFiltro === 'mes') {
+      const mesIdx = MESES_LIST.indexOf(mesSeleccionado)
+      resumenDesde = new Date(2026, mesIdx, 1)
+      resumenHasta = new Date(2026, mesIdx + 1, 0)
+    } else {
+      resumenDesde = desde ? new Date(desde + 'T00:00:00') : new Date('2026-01-01')
+      resumenHasta = hasta ? new Date(hasta + 'T23:59:59') : new Date()
+    }
     const res = coaches.map(coach => {
       const insMes = filtrarIns(inscripciones).filter(i => i.clases?.coach_id === coach.id)
 
@@ -122,7 +153,7 @@ export default function Comisiones() {
       insParaComision.forEach(i => {
         if (!seenAll.has(i.clase_id)) {
           seenAll.add(i.clase_id)
-          clasesUnicas += (i.clases?.clases_en_rango || 1)
+          clasesUnicas += contarSesiones(i.clases, resumenDesde, resumenHasta)
         }
       })
 
@@ -158,7 +189,7 @@ export default function Comisiones() {
         const mesIdx = MESES_LIST.indexOf((i.mes || '').toLowerCase())
         const anio = i.anio || 2026
         if (anio > 2026 || (anio === 2026 && mesIdx >= 4))
-          sesionesPromo += (i.clases?.clases_en_rango || 1)
+          sesionesPromo += contarSesiones(i.clases, resumenDesde, resumenHasta)
       })
       // Descuento = (comisión/sesión) × sesiones Promo mayo+ × 50%
       const comPorSesion = clasesUnicas > 0 ? comisionBruta / clasesUnicas : 0
@@ -280,44 +311,25 @@ export default function Comisiones() {
           }
         })
 
-        // Comision solo por clases (sin base)
-        let comisionClasesBruta = 0
-        if (r.coach.esquema_comision === 'Porcentaje') {
-          const neto = r.coach.aplica_iva ? ingresoTeoricoPDF / 1.16 : ingresoTeoricoPDF
-          comisionClasesBruta = neto * (r.coach.porcentaje_comision || 0)
-        } else if (r.coach.esquema_comision === 'Bono') {
-          comisionClasesBruta = Math.max(0, r.clasesUnicas - (r.coach.clases_base || 0)) * (r.coach.pago_extra_clase || 0)
-        } else if (r.coach.esquema_comision === 'Mixto') {
-          const neto = r.coach.aplica_iva ? ingresoTeoricoPDF / 1.16 : ingresoTeoricoPDF
-          comisionClasesBruta = r.clasesUnicas * (r.coach.tarifa_privada_fija || 0) + neto * (r.coach.porcentaje_comision || 0)
-        }
-        // Separar sesiones normales vs Promo mayo+ para el PDF
+        // Comisión total sobre TODAS las sesiones
+        const comisionTotalPDF = calcComision(r.coach, r.clasesUnicas, ingresoTeoricoPDF)
+        // Descuento 50% para sesiones Promo de mayo en adelante
         const MESES_IDX_PDF2 = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
-        const seenNormalPDF = new Set()
         const seenPromoPDF = new Set()
-        let sesionesNormalesPDF = 0
         let sesionesPromoDescPDF = 0
         insCoachPDF.forEach(i => {
-          const esPromo = i.clases?.modalidad === 'Promo' || i.clases?.modalidad === 'Cortesía'
+          const esPromo = i.clases?.modalidad === 'Promo' || i.clases?.modalidad === 'Cortesía' || i.metodo_pago === 'Promo'
+          if (!esPromo || seenPromoPDF.has(i.clase_id)) return
+          seenPromoPDF.add(i.clase_id)
           const mesIdx = MESES_IDX_PDF2.indexOf((i.mes || '').toLowerCase())
           const anio = i.anio || 2026
-          const esMayoOPost = anio > 2026 || (anio === 2026 && mesIdx >= 4)
-          if (esPromo && esMayoOPost) {
-            if (!seenPromoPDF.has(i.clase_id)) {
-              seenPromoPDF.add(i.clase_id)
-              sesionesPromoDescPDF += (i.clases?.clases_en_rango || 1)
-            }
-          } else {
-            if (!seenNormalPDF.has(i.clase_id)) {
-              seenNormalPDF.add(i.clase_id)
-              sesionesNormalesPDF += (i.clases?.clases_en_rango || 1)
-            }
-          }
+          if (anio > 2026 || (anio === 2026 && mesIdx >= 4))
+            sesionesPromoDescPDF += contarSesiones(i.clases, pdfDesde, pdfHasta)
         })
-        const comisionNormalPDF = calcComision(r.coach, sesionesNormalesPDF, ingresoTeoricoPDF)
-        const comisionPromoPDF = Math.round(calcComision(r.coach, sesionesPromoDescPDF, 0) * 0.5)
-        const comisionClases = Math.round(comisionNormalPDF + comisionPromoPDF - baseProporcional)
-        const totalAPagar = baseProporcional + comisionClases
+        const comPorSesionPDF = r.clasesUnicas > 0 ? comisionTotalPDF / r.clasesUnicas : 0
+        const descuentoPDF = Math.round(comPorSesionPDF * sesionesPromoDescPDF * 0.5)
+        const totalAPagar = Math.round(comisionTotalPDF - descuentoPDF)
+        const comisionClases = totalAPagar - baseProporcional
 
         // Header
         doc.setFillColor(15, 17, 26)
@@ -599,7 +611,7 @@ export default function Comisiones() {
           // Hours
           const seenH = new Set()
           let horas = 0
-          insBase.forEach(i => { if (!seenH.has(i.clase_id)) { seenH.add(i.clase_id); horas += i.clases?.clases_en_rango || 1 } })
+          insBase.forEach(i => { if (!seenH.has(i.clase_id)) { seenH.add(i.clase_id); horas += contarSesiones(i.clases, resumenDesde, resumenHasta) } })
           // Theoretical income
           let ingreso = 0
           insBase.forEach(i => {
