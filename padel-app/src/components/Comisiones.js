@@ -312,16 +312,32 @@ export default function Comisiones() {
         })
 
         // Comisión total sobre TODAS las sesiones
+        // Rango del período para contar sesiones
+        const MESES_N_COM = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
+        let comDesde, comHasta
+        if (modoFiltro === 'mes') {
+          const mIdx = MESES_N_COM.indexOf(mesSeleccionado)
+          comDesde = new Date(2026, mIdx, 1)
+          comHasta = new Date(2026, mIdx + 1, 0)
+        } else {
+          comDesde = desde ? new Date(desde + 'T00:00:00') : new Date('2026-01-01')
+          comHasta = hasta ? new Date(hasta + 'T23:59:59') : new Date()
+        }
+        // Comisión total sobre TODAS las sesiones reales del período
         const comisionTotalPDF = calcComision(r.coach, r.clasesUnicas, ingresoTeoricoPDF)
-        // Descuento 50%: contar sesiones Promo del array ya expandido
-        const clasesIdPromo = new Set(
-          insCoachPDF
-            .filter(i => i.clases?.modalidad === 'Promo' || i.clases?.modalidad === 'Cortesía' || i.metodo_pago === 'Promo')
-            .map(i => i.clase_id)
-        )
-        const sesionesPromoDescPDF = sesiones.filter(s => clasesIdPromo.has(s.claseId)).length
-        const totalSesiones = sesiones.length
-        const comPorSesionPDF = totalSesiones > 0 ? comisionTotalPDF / totalSesiones : 0
+        // Descuento 50%: sumar sesiones Promo en el período usando contarSesiones
+        const seenComPromo = new Set()
+        let sesionesPromoDescPDF = 0
+        insCoachPDF.forEach(i => {
+          const esPromo = i.clases?.modalidad === 'Promo' || i.clases?.modalidad === 'Cortesía' || i.metodo_pago === 'Promo'
+          if (!esPromo || seenComPromo.has(i.clase_id)) return
+          seenComPromo.add(i.clase_id)
+          const mesIdx = MESES_IDX_PDF.indexOf((i.mes || '').toLowerCase())
+          const anio = i.anio || 2026
+          if (anio > 2026 || (anio === 2026 && mesIdx >= 4))
+            sesionesPromoDescPDF += contarSesiones(i.clases, comDesde, comHasta)
+        })
+        const comPorSesionPDF = r.clasesUnicas > 0 ? comisionTotalPDF / r.clasesUnicas : 0
         const descuentoPDF = Math.round(comPorSesionPDF * sesionesPromoDescPDF * 0.5)
         const totalAPagar = Math.round(comisionTotalPDF - descuentoPDF)
         const comisionClases = totalAPagar - baseProporcional
