@@ -119,6 +119,7 @@ export default function Clases({ usuario }) {
   const [busqueda, setBusqueda] = useState('')
   const [toast, setToast] = useState('')
   const [filterCoach, setFilterCoach] = useState('')
+  const [filterJugador, setFilterJugador] = useState('')
   const [filterMes, setFilterMes] = useState('')
   const [filterDesde, setFilterDesde] = useState('')
   const [sortCol, setSortCol] = useState('fecha_inicio')
@@ -383,6 +384,11 @@ export default function Clases({ usuario }) {
   const clasesFiltradas = clases.filter(c => {
     if (!isAdmin && c.coach_id !== usuario?.coach_id) return false
     if (filterCoach && c.coach_id !== filterCoach) return false
+    if (filterJugador) {
+      const ins = inscripciones.filter(i => i.clase_id === c.id)
+      const nombres = ins.map(i => (i.jugadores?.nombre || '').toLowerCase())
+      if (!nombres.some(n => n.includes(filterJugador.toLowerCase()))) return false
+    }
     if (filterMes) {
       const ins = inscripciones.filter(i => i.clase_id === c.id)
       if (!ins.some(i => i.mes === filterMes)) return false
@@ -436,6 +442,9 @@ export default function Clases({ usuario }) {
             <option value="">Todos los coaches</option>
             {coaches.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
           </select>
+          <input className="form-input" placeholder="🔍 Buscar jugador..." value={filterJugador}
+            onChange={e => setFilterJugador(e.target.value)}
+            style={{ maxWidth: 200 }} />
           <select className="form-input" style={{ maxWidth: 150, textTransform: 'capitalize' }} value={filterMes} onChange={e => { setFilterMes(e.target.value); setFilterDesde(''); setFilterHasta('') }}>
             <option value="">Todos los meses</option>
             {MESES.map(m => <option key={m} value={m} style={{ textTransform: 'capitalize' }}>{m}</option>)}
@@ -447,15 +456,23 @@ export default function Clases({ usuario }) {
           <input className="form-input" type="date" value={filterHasta} style={{ maxWidth: 150 }}
             onChange={e => { setFilterHasta(e.target.value); setFilterMes('') }} />
           {(filterMes || hayFiltroFecha) && (
-            <button className="btn btn-secondary btn-sm" onClick={() => { setFilterMes(''); setFilterDesde(''); setFilterHasta('') }}>✕ Limpiar</button>
+            <button className="btn btn-secondary btn-sm" onClick={() => { setFilterMes(''); setFilterDesde(''); setFilterHasta(''); setFilterJugador('') }}>✕ Limpiar</button>
           )}
+        </div>
+      )}
+
+      {!isAdmin && (
+        <div style={{ marginBottom: 12 }}>
+          <input className="form-input" placeholder="🔍 Buscar jugador..." value={filterJugador}
+            onChange={e => setFilterJugador(e.target.value)}
+            style={{ maxWidth: 240 }} />
         </div>
       )}
 
       <div className="card" style={{ padding: 0 }}>
         <table className="table">
           <thead><tr>
-            {[['coach','Coach'],['tipo','Tipo'],['modalidad','Modalidad'],['horario','Horario'],['jugadores','Jugadores'],['mes','Mes'],['pagos','Pagos']].map(([col, label]) => (
+            {[['coach','Coach'],['tipo','Tipo'],['modalidad','Modalidad'],['horario','Horario'],['jugadores','Alumnos'],['mes','Mes'],['pagos','Pagos']].map(([col, label]) => (
               <th key={col} onClick={() => toggleSort(col)} style={{ cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}>
                 {label}<SortIcon col={col} />
               </th>
@@ -477,7 +494,14 @@ export default function Clases({ usuario }) {
                     {c.dia && <span>{c.dia} </span>}
                     <span style={{ fontFamily: 'var(--mono)' }}>{c.hora?.slice(0,5)}</span>
                   </td>
-                  <td style={{ fontSize: 13 }}>{ins.length} jugador{ins.length !== 1 ? 'es' : ''}</td>
+                  <td style={{ fontSize: 13, maxWidth: 200 }}>
+                    {ins.length === 0
+                      ? <span style={{ color: 'var(--text2)' }}>—</span>
+                      : <span style={{ color: 'var(--text2)' }}>
+                          {ins.map(i => i.jugadores?.nombre).filter(Boolean).join(', ')}
+                        </span>
+                    }
+                  </td>
                   <td style={{ fontSize: 13, textTransform: 'capitalize' }}>{ins[0]?.mes || '—'}</td>
                   <td><span className={`badge ${pagados === ins.length && ins.length > 0 ? 'badge-green' : pagados > 0 ? 'badge-yellow' : 'badge-red'}`}>{pagados}/{ins.length}</span></td>
                 </tr>
