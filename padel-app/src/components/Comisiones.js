@@ -104,82 +104,66 @@ export default function Comisiones() {
   }
 
   const calcResumen = () => {
+    const MESES_LIST = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
     const res = coaches.map(coach => {
       const insMes = filtrarIns(inscripciones).filter(i => i.clases?.coach_id === coach.id)
-      // Solo inscripciones pagadas (o Promo que siempre cuentan para comisión)
+
+      // Inscripciones que generan comisión: pagadas + Promo (modalidad o metodo_pago)
       const insParaComision = insMes.filter(i => {
-        if (i.metodo_pago === 'Promo') return true
         const modalidad = i.clases?.modalidad
         if (modalidad === 'Promo' || modalidad === 'Cortesía') return true
+        if (i.metodo_pago === 'Promo') return true
         return i.pagado
       })
-      // Sumar horas reales (clases_en_rango) por clase única
-      // Sumar horas reales (clases_en_rango) por clase única pagada
-      const clasesUnicas = (() => {
-        const seen = new Set()
-        let total = 0
-        insParaComision.forEach(i => {
-          if (!seen.has(i.clase_id)) {
-            seen.add(i.clase_id)
-            total += (i.clases?.clases_en_rango || 1)
-          }
-        })
-        return total
-      })()
-      const MESES_IDX_C = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
+
+      // Total sesiones únicas
+      const seenAll = new Set()
+      let clasesUnicas = 0
+      insParaComision.forEach(i => {
+        if (!seenAll.has(i.clase_id)) {
+          seenAll.add(i.clase_id)
+          clasesUnicas += (i.clases?.clases_en_rango || 1)
+        }
+      })
+
+      // Ingreso teórico (para esquemas Porcentaje/Mixto)
       let ingresoTeorico = 0
       insParaComision.forEach(i => {
         const modalidad = i.clases?.modalidad
-        const esPromoMetodo = i.metodo_pago === 'Promo'
-        const esPromoModalidad = modalidad === 'Promo' || modalidad === 'Cortesía'
         const p = insMes.filter(x => x.clase_id === i.clase_id).length
-        // Factor 50% para Promo desde mayo 2026
-        let factorPromo = 1
-        if (esPromoMetodo || esPromoModalidad) {
-          const mesIdx = MESES_IDX_C.indexOf((i.mes || '').toLowerCase())
-          const anio = i.anio || 2026
-          factorPromo = (anio > 2026 || (anio === 2026 && mesIdx >= 4)) ? 0.5 : 1
-        }
-        if (esPromoModalidad) {
-          ingresoTeorico += calcValorTeorico(modalidad, p) * factorPromo
-        } else if (esPromoMetodo) {
-          // Promo por metodo_pago: usar valor teórico con factor
-          const monto = calcValorTeorico(modalidad, p)
-          ingresoTeorico += monto * factorPromo
-        } else {
-          const monto = i.monto_cobrado && i.monto_cobrado > 0 ? i.monto_cobrado : calcValorTeorico(modalidad, p)
-          ingresoTeorico += monto
-        }
+        const esPromo = modalidad === 'Promo' || modalidad === 'Cortesía' || i.metodo_pago === 'Promo'
+        const mesIdx = MESES_LIST.indexOf((i.mes || '').toLowerCase())
+        const anio = i.anio || 2026
+        const factor = esPromo && (anio > 2026 || (anio === 2026 && mesIdx >= 4)) ? 0.5 : 1
+        const monto = (modalidad === 'Promo' || modalidad === 'Cortesía')
+          ? calcValorTeorico(modalidad, p)
+          : (i.monto_cobrado > 0 ? i.monto_cobrado : calcValorTeorico(modalidad, p))
+        ingresoTeorico += monto * factor
       })
+
       const cobrado = insMes.filter(i => i.pagado).reduce((a, i) => a + (i.monto_cobrado || 0), 0)
 
-      // Separar sesiones normales vs Promo de mayo en adelante
-      const MESES_IDX_D = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
-      const seenNormal = new Set()
+      // Calcular comisión: primero bruta sobre todas las sesiones
+      const comisionBruta = calcComision(coach, clasesUnicas, ingresoTeorico)
+
+      // Aplicar descuento 50% a sesiones Promo de mayo en adelante
       const seenPromo = new Set()
-      let sesionesNormales = 0
-      let sesionesPromoDesc = 0
+      let sesionesPromo = 0
       insParaComision.forEach(i => {
-        const esPromo = i.clases?.modalidad === 'Promo' || i.clases?.modalidad === 'Cortesía'
-        const mesIdx = MESES_IDX_D.indexOf((i.mes || '').toLowerCase())
+        const modalidad = i.clases?.modalidad
+        const esPromo = modalidad === 'Promo' || modalidad === 'Cortesía' || i.metodo_pago === 'Promo'
+        if (!esPromo) return
+        if (seenPromo.has(i.clase_id)) return
+        seenPromo.add(i.clase_id)
+        const mesIdx = MESES_LIST.indexOf((i.mes || '').toLowerCase())
         const anio = i.anio || 2026
-        const esMayoOPost = anio > 2026 || (anio === 2026 && mesIdx >= 4)
-        if (esPromo && esMayoOPost) {
-          if (!seenPromo.has(i.clase_id)) {
-            seenPromo.add(i.clase_id)
-            sesionesPromoDesc += (i.clases?.clases_en_rango || 1)
-          }
-        } else {
-          if (!seenNormal.has(i.clase_id)) {
-            seenNormal.add(i.clase_id)
-            sesionesNormales += (i.clases?.clases_en_rango || 1)
-          }
-        }
+        if (anio > 2026 || (anio === 2026 && mesIdx >= 4))
+          sesionesPromo += (i.clases?.clases_en_rango || 1)
       })
-      // Comisión = normal al 100% + Promo al 50%
-      const comisionNormal = calcComision(coach, sesionesNormales, ingresoTeorico)
-      const comisionPromo = Math.round(calcComision(coach, sesionesPromoDesc, 0) * 0.5)
-      const comision = comisionNormal + comisionPromo
+      // Descuento = (comisión/sesión) × sesiones Promo mayo+ × 50%
+      const comPorSesion = clasesUnicas > 0 ? comisionBruta / clasesUnicas : 0
+      const descuento = Math.round(comPorSesion * sesionesPromo * 0.5)
+      const comision = comisionBruta - descuento
 
       return { coach, clasesUnicas, ingresoTeorico, cobrado, comision }
     }).filter(r => r.clasesUnicas > 0 || coaches.length <= 6)
