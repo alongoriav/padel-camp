@@ -238,7 +238,7 @@ export default function Clases({ usuario }) {
     setForm({
       coach_id: clase.coach_id,
       tipo: clase.tipo,
-      modalidad: clase.modalidad === 'Promo' ? 'Semanal' : clase.modalidad,
+      modalidad: clase.modalidad,
       dia: clase.dia || 'Lunes',
       hora: clase.hora?.slice(0,5) || '09:00',
       fecha_inicio: clase.fecha_inicio || '',
@@ -489,7 +489,7 @@ export default function Clases({ usuario }) {
                 <tr key={c.id} style={{ cursor: 'pointer' }} onClick={() => setDetalle(c)}>
                   <td style={{ fontWeight: 600 }}>{c.coaches?.nombre}</td>
                   <td><span className={`badge ${c.tipo === 'Privada' ? 'badge-blue' : 'badge-yellow'}`}>{c.tipo}</span></td>
-                  <td><span className={`badge ${(c.modalidad === 'Semanal' || c.modalidad === 'Promo') ? 'badge-green' : c.modalidad === 'Cortesía' ? 'badge-gray' : 'badge-blue'}`}>{c.modalidad === 'Promo' ? 'Semanal' : c.modalidad}</span></td>
+                  <td><span className={`badge ${c.modalidad === 'Semanal' ? 'badge-green' : c.modalidad === 'Promo' ? 'badge-yellow' : c.modalidad === 'Cortesía' ? 'badge-gray' : 'badge-blue'}`}>{c.modalidad}</span></td>
                   <td style={{ fontSize: 13 }}>
                     {c.dia && <span>{c.dia} </span>}
                     <span style={{ fontFamily: 'var(--mono)' }}>{c.hora?.slice(0,5)}</span>
