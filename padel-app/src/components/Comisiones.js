@@ -152,7 +152,27 @@ export default function Comisiones() {
         }
       })
       const cobrado = insMes.filter(i => i.pagado).reduce((a, i) => a + (i.monto_cobrado || 0), 0)
-      const comision = calcComision(coach, clasesUnicas, ingresoTeorico)
+      const comisionBruta = calcComision(coach, clasesUnicas, ingresoTeorico)
+
+      // Aplicar descuento 50% a sesiones Promo de mayo 2026 en adelante
+      const MESES_IDX_D = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
+      const seenPromo = new Set()
+      let sesionesPromoDesc = 0
+      insParaComision.forEach(i => {
+        const esPromo = i.metodo_pago === 'Promo' || i.clases?.modalidad === 'Promo' || i.clases?.modalidad === 'Cortesía'
+        if (!esPromo) return
+        if (seenPromo.has(i.clase_id)) return
+        seenPromo.add(i.clase_id)
+        const mesIdx = MESES_IDX_D.indexOf((i.mes || '').toLowerCase())
+        const anio = i.anio || 2026
+        const esMayoOPost = anio > 2026 || (anio === 2026 && mesIdx >= 4)
+        if (esMayoOPost) sesionesPromoDesc += (i.clases?.clases_en_rango || 1)
+      })
+      // Descuento = valor por sesión × sesiones con descuento × 50%
+      const comisionPorSesion = clasesUnicas > 0 ? comisionBruta / clasesUnicas : 0
+      const descuento = comisionPorSesion * sesionesPromoDesc * 0.5
+      const comision = Math.round(comisionBruta - descuento)
+
       return { coach, clasesUnicas, ingresoTeorico, cobrado, comision }
     }).filter(r => r.clasesUnicas > 0 || coaches.length <= 6)
     setResumen(res)
@@ -269,16 +289,31 @@ export default function Comisiones() {
         })
 
         // Comision solo por clases (sin base)
-        let comisionClases = 0
+        let comisionClasesBruta = 0
         if (r.coach.esquema_comision === 'Porcentaje') {
           const neto = r.coach.aplica_iva ? ingresoTeoricoPDF / 1.16 : ingresoTeoricoPDF
-          comisionClases = neto * (r.coach.porcentaje_comision || 0)
+          comisionClasesBruta = neto * (r.coach.porcentaje_comision || 0)
         } else if (r.coach.esquema_comision === 'Bono') {
-          comisionClases = Math.max(0, r.clasesUnicas - (r.coach.clases_base || 0)) * (r.coach.pago_extra_clase || 0)
+          comisionClasesBruta = Math.max(0, r.clasesUnicas - (r.coach.clases_base || 0)) * (r.coach.pago_extra_clase || 0)
         } else if (r.coach.esquema_comision === 'Mixto') {
           const neto = r.coach.aplica_iva ? ingresoTeoricoPDF / 1.16 : ingresoTeoricoPDF
-          comisionClases = r.clasesUnicas * (r.coach.tarifa_privada_fija || 0) + neto * (r.coach.porcentaje_comision || 0)
+          comisionClasesBruta = r.clasesUnicas * (r.coach.tarifa_privada_fija || 0) + neto * (r.coach.porcentaje_comision || 0)
         }
+        // Descuento 50% sobre sesiones Promo de mayo 2026 en adelante
+        const MESES_IDX_PDF2 = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
+        const seenPromoPDF = new Set()
+        let sesionesPromoDescPDF = 0
+        insCoachAll.filter(i => i.pagado || i.metodo_pago === 'Promo' || i.clases?.modalidad === 'Promo' || i.clases?.modalidad === 'Cortesía').forEach(i => {
+          const esPromo = i.metodo_pago === 'Promo' || i.clases?.modalidad === 'Promo' || i.clases?.modalidad === 'Cortesía'
+          if (!esPromo || seenPromoPDF.has(i.clase_id)) return
+          seenPromoPDF.add(i.clase_id)
+          const mesIdx = MESES_IDX_PDF2.indexOf((i.mes || '').toLowerCase())
+          const anio = i.anio || 2026
+          if (anio > 2026 || (anio === 2026 && mesIdx >= 4)) sesionesPromoDescPDF += (i.clases?.clases_en_rango || 1)
+        })
+        const comPorSesionPDF = r.clasesUnicas > 0 ? comisionClasesBruta / r.clasesUnicas : 0
+        const descuentoPDF = comPorSesionPDF * sesionesPromoDescPDF * 0.5
+        const comisionClases = Math.round(comisionClasesBruta - descuentoPDF)
         const totalAPagar = baseProporcional + comisionClases
 
         // Header
