@@ -44,31 +44,40 @@ export default function Usuarios() {
         await supabase.from('usuarios').update(payload).eq('id', editId)
         showToast('Usuario actualizado ✓')
       } else {
-        // Create new user via SQL function workaround — insert into auth
+        // Crear usuario nuevo
         if (!form.email.trim() || !form.password.trim()) {
           showToast('Email y contraseña son requeridos')
           setLoading(false)
           return
         }
-        const { data, error } = await supabase.rpc('crear_usuario', {
-          p_email: form.email.trim(),
-          p_password: form.password,
-          p_nombre: form.nombre.trim(),
-          p_rol: form.rol,
-          p_coach_id: form.rol === 'coach' ? form.coach_id || null : null
+        // Paso 1: crear en auth con signUp
+        const { data: authData, error: authError } = await supabase.auth.signUp({
+          email: form.email.trim(),
+          password: form.password,
+          options: { data: { nombre: form.nombre.trim() } }
         })
-        if (error) {
-          // Fallback: insert directly
-          const res = await fetch(`${process.env.REACT_APP_SUPABASE_URL}/auth/v1/admin/users`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'apikey': process.env.REACT_APP_SUPABASE_ANON_KEY,
-              'Authorization': `Bearer ${process.env.REACT_APP_SUPABASE_ANON_KEY}`
-            },
-            body: JSON.stringify({ email: form.email, password: form.password, email_confirm: true })
-          })
-          showToast('Para crear usuarios usa el SQL Editor de Supabase')
+        if (authError) {
+          showToast('Error: ' + authError.message)
+          setLoading(false)
+          return
+        }
+        const userId = authData?.user?.id
+        if (!userId) {
+          showToast('Error al obtener ID del usuario')
+          setLoading(false)
+          return
+        }
+        // Paso 2: insertar en tabla usuarios
+        const payload = {
+          id: userId,
+          nombre: form.nombre.trim(),
+          email: form.email.trim(),
+          rol: form.rol,
+          coach_id: form.rol === 'coach' ? form.coach_id || null : null
+        }
+        const { error: dbError } = await supabase.from('usuarios').insert(payload)
+        if (dbError) {
+          showToast('Error al guardar usuario: ' + dbError.message)
           setLoading(false)
           return
         }
