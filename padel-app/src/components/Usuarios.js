@@ -50,33 +50,15 @@ export default function Usuarios() {
           setLoading(false)
           return
         }
-        // Paso 1: crear en auth con signUp
-        const { data: authData, error: authError } = await supabase.auth.signUp({
-          email: form.email.trim(),
-          password: form.password,
-          options: { data: { nombre: form.nombre.trim() } }
+        const { error: rpcError } = await supabase.rpc('crear_usuario_padel', {
+          p_email: form.email.trim(),
+          p_password: form.password,
+          p_nombre: form.nombre.trim(),
+          p_rol: form.rol,
+          p_coach_id: form.rol === 'coach' ? (form.coach_id || null) : null
         })
-        if (authError) {
-          showToast('Error: ' + authError.message)
-          setLoading(false)
-          return
-        }
-        const userId = authData?.user?.id
-        if (!userId) {
-          showToast('Error al obtener ID del usuario')
-          setLoading(false)
-          return
-        }
-        // Paso 2: insertar en tabla usuarios
-        const payload = {
-          id: userId,
-          nombre: form.nombre.trim(),
-          rol: form.rol,
-          coach_id: form.rol === 'coach' ? form.coach_id || null : null
-        }
-        const { error: dbError } = await supabase.from('usuarios').insert(payload)
-        if (dbError) {
-          showToast('Error al guardar usuario: ' + dbError.message)
+        if (rpcError) {
+          showToast('Error: ' + rpcError.message)
           setLoading(false)
           return
         }
