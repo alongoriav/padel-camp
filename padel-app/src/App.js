@@ -52,7 +52,17 @@ export default function App() {
 
   const fetchUsuario = async (uid) => {
     const { data } = await supabase.from('usuarios').select('*').eq('id', uid).single()
-    setUsuario(data)
+    if (data) {
+      setUsuario(data)
+    } else {
+      // Usuario existe en auth pero no en tabla usuarios — crear registro automáticamente
+      const { data: authUser } = await supabase.auth.getUser()
+      const email = authUser?.user?.email || ''
+      const nombre = authUser?.user?.user_metadata?.nombre || email.split('@')[0]
+      const payload = { id: uid, nombre, rol: 'operador', coach_id: null }
+      await supabase.from('usuarios').insert(payload)
+      setUsuario(payload)
+    }
     setLoading(false)
   }
 
