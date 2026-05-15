@@ -12,6 +12,8 @@ export default function Usuarios() {
   const [editId, setEditId] = useState(null)
   const [loading, setLoading] = useState(false)
   const [toast, setToast] = useState('')
+  const [showPass, setShowPass] = useState(false)
+  const [confirmarEliminar, setConfirmarEliminar] = useState(null)
 
   useEffect(() => { fetchAll() }, [])
 
@@ -72,6 +74,22 @@ export default function Usuarios() {
     setLoading(false)
   }
 
+  const eliminarUsuario = async (u) => {
+    setLoading(true)
+    try {
+      // Borrar de tabla usuarios
+      await supabase.from('usuarios').delete().eq('id', u.id)
+      // Borrar de auth via RPC
+      await supabase.rpc('eliminar_usuario_padel', { p_user_id: u.id })
+      showToast('Usuario eliminado ✓')
+      setConfirmarEliminar(null)
+      fetchAll()
+    } catch (e) {
+      showToast('Error: ' + e.message)
+    }
+    setLoading(false)
+  }
+
   const getRolColor = (rol) => {
     if (rol === 'admin') return '#ff3b30'
     if (rol === 'operador') return 'var(--accent)'
@@ -121,9 +139,11 @@ export default function Usuarios() {
                   {u.coach_id ? coaches.find(c => c.id === u.coach_id)?.nombre || '—' : '—'}
                 </td>
                 <td>
-                  <button className="btn btn-secondary btn-sm" onClick={() => openEdit(u)}>
-                    Editar
-                  </button>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button className="btn btn-secondary btn-sm" onClick={() => openEdit(u)}>Editar</button>
+                    <button className="btn btn-sm" onClick={() => setConfirmarEliminar(u)}
+                      style={{ background: 'rgba(255,59,48,.15)', color: '#ff3b30', border: 'none' }}>🗑️</button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -163,8 +183,17 @@ export default function Usuarios() {
                   </div>
                   <div className="form-group">
                     <label className="form-label">Contraseña *</label>
-                    <input className="form-input" type="password" placeholder="Mínimo 8 caracteres"
-                      value={form.password} onChange={e => set('password', e.target.value)} />
+                    <div style={{ position: 'relative' }}>
+                      <input className="form-input" type={showPass ? 'text' : 'password'}
+                        placeholder="Mínimo 6 caracteres" value={form.password}
+                        onChange={e => set('password', e.target.value)}
+                        style={{ paddingRight: 40 }} />
+                      <button type="button" onClick={() => setShowPass(p => !p)}
+                        style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
+                          background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text2)', fontSize: 16 }}>
+                        {showPass ? '🙈' : '👁️'}
+                      </button>
+                    </div>
                   </div>
                 </>
               )}
@@ -202,6 +231,24 @@ export default function Usuarios() {
                   {loading ? 'Guardando...' : editId ? 'Guardar cambios' : 'Crear usuario'}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmarEliminar && (
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setConfirmarEliminar(null)}>
+          <div className="modal" style={{ maxWidth: 380 }}>
+            <h2 className="modal-title">¿Eliminar usuario?</h2>
+            <p style={{ color: 'var(--text2)', fontSize: 14, marginBottom: 20 }}>
+              ¿Estás seguro de que quieres eliminar a <strong style={{ color: 'var(--text)' }}>{confirmarEliminar.nombre}</strong>? Esta acción no se puede deshacer.
+            </p>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button className="btn btn-secondary" onClick={() => setConfirmarEliminar(null)}>Cancelar</button>
+              <button className="btn" onClick={() => eliminarUsuario(confirmarEliminar)}
+                style={{ background: 'var(--danger)', color: '#fff', border: 'none' }} disabled={loading}>
+                {loading ? 'Eliminando...' : 'Sí, eliminar'}
+              </button>
             </div>
           </div>
         </div>
