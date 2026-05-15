@@ -71,7 +71,6 @@ export default function Usuarios() {
         const payload = {
           id: userId,
           nombre: form.nombre.trim(),
-          email: form.email.trim(),
           rol: form.rol,
           coach_id: form.rol === 'coach' ? form.coach_id || null : null
         }
