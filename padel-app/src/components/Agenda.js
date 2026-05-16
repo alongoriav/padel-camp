@@ -424,7 +424,7 @@ export default function Agenda({ usuario }) {
                             >
                               <div style={{ fontWeight: 600, color: 'var(--text)', marginBottom: 2 }}>{c.coaches?.nombre}</div>
                               {ins.map(i => (
-                                <div key={i.id} style={{ color: i.pagado ? 'var(--accent)' : 'var(--danger)', fontSize: 11 }}>
+                                <div key={i.id} style={{ color: i.pagado ? '#0066cc' : 'var(--danger)', fontSize: 11, fontWeight: 500 }}>
                                   {i.pagado ? '✅' : '❌'} {i.jugadores?.nombre}
                                 </div>
                               ))}
