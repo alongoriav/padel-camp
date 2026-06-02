@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
+import { CheckinNuevo, CheckinDetalle, guardarCheckins } from './CheckinWidget'
 
 const DIAS = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo']
 const HORAS = ['06:00','07:00','08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00','21:00']
@@ -116,6 +117,7 @@ export default function Clases({ usuario }) {
   const [form, setForm] = useState(emptyForm)
   const [fechas, setFechas] = useState([])
   const [jugadoresClase, setJugadoresClase] = useState([])
+  const [checkinFechas, setCheckinFechas] = useState({})
   const [busqueda, setBusqueda] = useState('')
   const [toast, setToast] = useState('')
   const [filterCoach, setFilterCoach] = useState('')
@@ -295,17 +297,28 @@ export default function Clases({ usuario }) {
       fecha_fin: form.modalidad === 'Semanal' ? form.fecha_fin : form.fecha_inicio, activo: true,
     }).select().single()
     if (!claseData) { showToast('Error al guardar'); return }
-    await supabase.from('inscripciones').insert(jugadoresClase.map(j => {
-      const montoFinal = j._montoProporcional != null ? j._montoProporcional : montoPorJugador
+    const insRows = jugadoresClase.map(j => {
+      const montoBase = j._montoProporcional != null ? j._montoProporcional : montoPorJugador
+      const descCheckin = j.metodo === 'Check-in' ? (checkinFechas[j.jugador_id]?.length || 0) * 200 : 0
       return {
         clase_id: claseData.id, jugador_id: j.jugador_id,
         metodo_pago: j.metodo, pagado: j.pagado,
-        monto_cobrado: montoFinal, mes: form.mes, anio: form.anio,
+        monto_cobrado: montoBase - descCheckin, mes: form.mes, anio: form.anio,
         fecha_entrada: j.fecha_entrada || null,
       }
-    }))
+    })
+    const { data: insData } = await supabase.from('inscripciones').insert(insRows).select()
+    // Guardar check-ins por jugador
+    if (insData) {
+      for (const ins of insData) {
+        const jug = jugadoresClase.find(j => j.jugador_id === ins.jugador_id)
+        if (jug?.metodo === 'Check-in') {
+          await guardarCheckins(ins.id, checkinFechas[jug.jugador_id] || [])
+        }
+      }
+    }
     showToast('Clase registrada ✓')
-    setModal(false); setJugadoresClase([]); setForm(emptyForm); fetchAll()
+    setModal(false); setJugadoresClase([]); setCheckinFechas({}); setForm(emptyForm); fetchAll()
   }
 
   const eliminarJugadorDetalle = async (ins) => {
@@ -664,6 +677,16 @@ export default function Clases({ usuario }) {
                           Pagado
                         </label>
                     }
+                    {j.metodo === 'Check-in' && (
+                      <div style={{ width: '100%', marginTop: 4 }}>
+                        <CheckinNuevo
+                          dia={form.dia} fechaInicio={form.fecha_inicio}
+                          fechaFin={form.modalidad === 'Semanal' ? form.fecha_fin : form.fecha_inicio}
+                          modalidad={form.modalidad}
+                          onChange={({ fechas, descuento }) => setCheckinFechas(prev => ({ ...prev, [j.jugador_id]: fechas }))}
+                        />
+                      </div>
+                    )}
                     {form.tipo === 'Compartida' && (
                       <div style={{ position: 'relative' }}>
                         <button onClick={() => setJugadoresClase(prev => prev.map(x => x.jugador_id === j.jugador_id ? { ...x, _showCal: !x._showCal } : x))}
@@ -712,9 +735,16 @@ export default function Clases({ usuario }) {
                     return (
                       <div key={j.jugador_id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginTop: 3 }}>
                         <span style={{ color: 'var(--text2)' }}>{j.nombre} {j.fecha_entrada && <span style={{ color: 'var(--danger)', fontSize: 11 }}>desde {j.fecha_entrada}</span>}</span>
-                        <span style={{ fontFamily: 'var(--mono)', color: esProporcional ? 'var(--warn)' : 'var(--accent)', fontWeight: 700, fontSize: 15 }}>
-                          ${monto.toLocaleString('es-MX')}
-                        </span>
+                        <div style={{ textAlign: 'right' }}>
+                          {j.metodo === 'Check-in' && (checkinFechas[j.jugador_id]?.length || 0) > 0 && (
+                            <div style={{ fontSize: 10, color: '#0066cc' }}>
+                              -{(checkinFechas[j.jugador_id].length * 200).toLocaleString('es-MX')} check-in
+                            </div>
+                          )}
+                          <span style={{ fontFamily: 'var(--mono)', color: esProporcional ? 'var(--warn)' : 'var(--accent)', fontWeight: 700, fontSize: 15 }}>
+                            ${(monto - (j.metodo === 'Check-in' ? (checkinFechas[j.jugador_id]?.length || 0) * 200 : 0)).toLocaleString('es-MX')}
+                          </span>
+                        </div>
                       </div>
                     )
                   })}
@@ -828,6 +858,7 @@ export default function Clases({ usuario }) {
                         style={{ border: 'none', cursor: i.metodo_pago === 'Promo' ? 'default' : 'pointer' }}>
                         {i.metodo_pago === 'Promo' ? '🎁 Promo' : i.pagado ? '✅ Pagado' : i.metodo_pago === 'Check-in' ? '⚡ Check-in' : '❌ Pendiente'}
                       </button>
+                      {i.metodo_pago === 'Check-in' && <CheckinDetalle inscripcionId={i.id} />}
                     </td>
                     <td>
                       {(() => {
