@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
+import { CheckinNuevo, CheckinDetalle, guardarCheckins } from './CheckinWidget'
 
 const HORAS = ['06:00','07:00','08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00','21:00']
 const DIAS_SEMANA = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo']
@@ -73,6 +74,7 @@ export default function Agenda({ usuario }) {
   const [formNueva, setFormNueva] = useState({})
   const [fechasNueva, setFechasNueva] = useState([])
   const [jugadoresClase, setJugadoresClase] = useState([])
+  const [checkinFechas, setCheckinFechas] = useState({})
   const [busqueda, setBusqueda] = useState('')
   const [busquedaDetalle, setBusquedaDetalle] = useState('')
   const [fechaEntradaDetalle, setFechaEntradaDetalle] = useState('')
@@ -323,15 +325,25 @@ export default function Agenda({ usuario }) {
       activo: true,
     }).select().single()
     if (!claseData) { showToast('Error al guardar'); return }
-    await supabase.from('inscripciones').insert(jugadoresClase.map(j => {
-      const montoFinal = j._montoProporcional != null ? j._montoProporcional : montoPorJugador
+    const insRows = jugadoresClase.map(j => {
+      const montoBase = j._montoProporcional != null ? j._montoProporcional : montoPorJugador
+      const descCheckin = j.metodo === 'Check-in' ? (checkinFechas[j.jugador_id]?.length || 0) * 200 : 0
       return {
         clase_id: claseData.id, jugador_id: j.jugador_id,
         metodo_pago: j.metodo, pagado: j.pagado,
-        monto_cobrado: montoFinal, mes: formNueva.mes, anio: formNueva.anio,
+        monto_cobrado: montoBase - descCheckin, mes: formNueva.mes, anio: formNueva.anio,
         fecha_entrada: j.fecha_entrada || null,
       }
-    }))
+    })
+    const { data: insData } = await supabase.from('inscripciones').insert(insRows).select()
+    if (insData) {
+      for (const ins of insData) {
+        const jug = jugadoresClase.find(j => j.jugador_id === ins.jugador_id)
+        if (jug?.metodo === 'Check-in') {
+          await guardarCheckins(ins.id, checkinFechas[jug.jugador_id] || [])
+        }
+      }
+    }
     showToast('Clase creada ✓')
     setModalNueva(false)
     fetchData()
@@ -489,10 +501,11 @@ export default function Agenda({ usuario }) {
                     <td style={{ fontSize: 13 }}>{i.metodo_pago}</td>
                     <td>
                       <button onClick={() => i.metodo_pago !== 'Promo' && togglePago(i)}
-                        className={`badge ${i.metodo_pago === 'Promo' ? 'badge-yellow' : i.pagado ? 'badge-green' : 'badge-red'}`}
+                        className={`badge ${i.metodo_pago === 'Promo' ? 'badge-yellow' : i.pagado ? 'badge-green' : i.metodo_pago === 'Check-in' ? 'badge-yellow' : 'badge-red'}`}
                         style={{ border: 'none', cursor: i.metodo_pago === 'Promo' ? 'default' : 'pointer' }}>
-                        {i.metodo_pago === 'Promo' ? '🎁 Promo' : i.pagado ? '✅ Pagado' : '❌ Pendiente'}
+                        {i.metodo_pago === 'Promo' ? '🎁 Promo' : i.pagado ? '✅ Pagado' : i.metodo_pago === 'Check-in' ? '⚡ Check-in' : '❌ Pendiente'}
                       </button>
+                      {i.metodo_pago === 'Check-in' && <CheckinDetalle inscripcionId={i.id} />}
                     </td>
                     <td>
                       {(() => {
@@ -687,6 +700,16 @@ export default function Agenda({ usuario }) {
                           Pagado
                         </label>
                     }
+                    {j.metodo === 'Check-in' && (
+                      <div style={{ width: '100%', marginTop: 4 }}>
+                        <CheckinNuevo
+                          dia={formNueva.dia} fechaInicio={formNueva.fecha_inicio}
+                          fechaFin={formNueva.modalidad === 'Semanal' ? formNueva.fecha_fin : formNueva.fecha_inicio}
+                          modalidad={formNueva.modalidad}
+                          onChange={({ fechas }) => setCheckinFechas(prev => ({ ...prev, [j.jugador_id]: fechas }))}
+                        />
+                      </div>
+                    )}
                     {formNueva.tipo === 'Compartida' && (
                       <div style={{ position: 'relative' }}>
                         <button onClick={() => setJugadoresClase(prev => prev.map(x => x.jugador_id === j.jugador_id ? { ...x, _showCal: !x._showCal } : x))}
