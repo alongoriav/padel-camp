@@ -286,6 +286,7 @@ export default function Comisiones() {
     }
 
     const ejecutarPDF = () => {
+      try {
       const { jsPDF } = window.jspdf
       const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
       const W = 210, M = 16
@@ -507,6 +508,7 @@ export default function Comisiones() {
         const MESES_LIST_PDF = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
 
         const calcComisionPorSesion = (inscripciones_clase, clase) => {
+          if (!inscripciones_clase || inscripciones_clase.length === 0) return 0
           // Sumar monto_cobrado de todas las inscripciones de esta clase
           const montoMensual = inscripciones_clase.reduce((s, i) => s + (i.monto_cobrado || 0), 0)
           if (montoMensual === 0) return 0
@@ -646,6 +648,7 @@ export default function Comisiones() {
 
       const coachNombre = coachExport === 'todos' ? 'todos' : coaches.find(c => c.id === coachExport)?.nombre?.replace(/\s/g,'_') || 'coach'
       doc.save(`comisiones_${coachNombre}_${labelPeriodo.replace(/[^a-zA-Z0-9]/g,'_')}.pdf`)
+      } catch(err) { console.error('PDF error:', err); alert('Error generando PDF: ' + err.message) }
       setExportando(false)
       setModalExport(false)
     }
