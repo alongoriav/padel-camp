@@ -482,9 +482,10 @@ export default function Comisiones() {
         const claseMapPDF = {}
         insCoach.forEach(ins => {
           const cid = ins.clase_id
-          if (!claseMapPDF[cid]) claseMapPDF[cid] = { ins, jugadores: [] }
+          if (!claseMapPDF[cid]) claseMapPDF[cid] = { ins, jugadores: [], inscripciones: [] }
           const nombre = ins.jugadores?.nombre
           if (nombre) claseMapPDF[cid].jugadores.push(nombre)
+          claseMapPDF[cid].inscripciones.push(ins)
         })
 
         // Date range for expansion
@@ -499,13 +500,48 @@ export default function Comisiones() {
           pdfHasta = hasta ? new Date(hasta + 'T23:59:59') : new Date()
         }
 
-        // Comisión por sesión diferenciada para Bono
-        // Primeras clasesBase sesiones: sueldo_base/clasesBase por sesión
-        // Sesiones extra (>clasesBase): pago_extra_clase por sesión
-        const clasesBasePDF = r.coach.clases_base || 55
-        const comPorSesionBase = r.clasesUnicas > 0 ? Math.round((r.coach.sueldo_base || 0) * pctTramo(r.clasesUnicas, clasesBasePDF) / Math.min(r.clasesUnicas, clasesBasePDF)) : 0
-        const comPorSesionExtra = r.coach.pago_extra_clase || 550
-        const comPorSesion = r.coach.esquema_comision === 'Bono' ? comPorSesionBase : (r.clasesUnicas > 0 ? Math.round(comisionClases / r.clasesUnicas) : 0)
+        // Calcula comisión por sesión:
+        // monto_cobrado es el pago MENSUAL del jugador
+        // Se divide entre las sesiones totales del mes para obtener el valor por sesión
+        // Luego se aplica el porcentaje de comisión solo a las sesiones en el rango
+        const MESES_LIST_PDF = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
+
+        const calcComisionPorSesion = (inscripciones_clase, clase) => {
+          // Sumar monto_cobrado de todas las inscripciones de esta clase
+          const montoMensual = inscripciones_clase.reduce((s, i) => s + (i.monto_cobrado || 0), 0)
+          if (montoMensual === 0) return 0
+
+          // Calcular cuántas sesiones tiene esta clase en su mes completo
+          const ins0 = inscripciones_clase[0]
+          const mesIdx = MESES_LIST_PDF.indexOf((ins0?.mes || '').toLowerCase())
+          const anio = ins0?.anio || 2026
+          let mesDesde, mesHasta
+          if (mesIdx >= 0) {
+            mesDesde = new Date(anio, mesIdx, 1)
+            mesHasta = new Date(anio, mesIdx + 1, 0)
+          } else {
+            mesDesde = pdfDesde
+            mesHasta = pdfHasta
+          }
+          const sesionesEnMes = contarSesiones(clase, mesDesde, mesHasta)
+          const valorPorSesion = sesionesEnMes > 0 ? montoMensual / sesionesEnMes : montoMensual
+
+          // Aplicar esquema de comisión sobre el valor por sesión
+          if (r.coach.esquema_comision === 'Porcentaje') {
+            const neto = r.coach.aplica_iva ? valorPorSesion / 1.16 : valorPorSesion
+            return Math.round(neto * (r.coach.porcentaje_comision || 0))
+          }
+          if (r.coach.esquema_comision === 'Bono') {
+            const clasesBasePDF = r.coach.clases_base || 55
+            return Math.round((r.coach.sueldo_base || 0) * pctTramo(r.clasesUnicas, clasesBasePDF) / Math.min(r.clasesUnicas, clasesBasePDF))
+          }
+          if (r.coach.esquema_comision === 'Mixto') {
+            const neto = r.coach.aplica_iva ? valorPorSesion / 1.16 : valorPorSesion
+            const esPrivada = clase?.tipo === 'Privada'
+            return Math.round((esPrivada ? (r.coach.tarifa_privada_fija || 0) : 0) + neto * (r.coach.porcentaje_comision || 0))
+          }
+          return 0
+        }
 
         // Expand each clase into real sessions
         const sesiones = []
@@ -513,6 +549,7 @@ export default function Comisiones() {
           const clase = ins.clases
           if (!clase) return
           const jugStr = jugadores.join(', ')
+          const comisionEstaSesion = calcComisionPorSesion(inscripciones, clase)
 
           if ((clase.modalidad === 'Semanal' || clase.modalidad === 'Promo' || clase.modalidad === 'Cortêsía') && clase.dia) {
             const diaSemana = DIAS_MAP_PDF[clase.dia]
@@ -530,7 +567,7 @@ export default function Comisiones() {
                 hora: clase.hora?.slice(0,5) || '—',
                 tipo: clase.tipo,
                 jugadores: jugStr,
-                comision: comPorSesion,
+                comision: comisionEstaSesion,
                 sortKey: d.getTime(),
                 claseId: ins.clase_id
               })
@@ -549,7 +586,7 @@ export default function Comisiones() {
               hora: clase.hora?.slice(0,5) || '—',
               tipo: clase.tipo,
               jugadores: jugStr,
-              comision: comPorSesion,
+              comision: comisionEstaSesion,
               sortKey: fi ? fi.getTime() : 0,
               claseId: ins.clase_id
             })
