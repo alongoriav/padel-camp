@@ -545,7 +545,7 @@ export default function Comisiones() {
 
         // Expand each clase into real sessions
         const sesiones = []
-        Object.values(claseMapPDF).forEach(({ ins, jugadores }) => {
+        Object.values(claseMapPDF).forEach(({ ins, jugadores, inscripciones }) => {
           const clase = ins.clases
           if (!clase) return
           const jugStr = jugadores.join(', ')
