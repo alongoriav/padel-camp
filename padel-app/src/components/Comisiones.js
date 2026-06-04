@@ -604,17 +604,12 @@ export default function Comisiones() {
           doc.setFillColor(...bg)
           doc.rect(M, y, W-M*2, 5.5, 'F')
           cx = M + 2
-          // Para Bono: primeras clasesBase con comPorSesionBase, extras con comPorSesionExtra
-          const esBono = r.coach.esquema_comision === 'Bono'
-          const comSesion = esBono
-            ? (i < clasesBasePDF ? comPorSesionBase : comPorSesionExtra)
-            : ses.comision
           const row = [
             { val: ses.fecha, color: [200,215,240] },
             { val: ses.hora, color: [160,175,200] },
             { val: ses.tipo, color: [140,160,190] },
             { val: ses.jugadores.substring(0, 40), color: [200,215,240] },
-            { val: fmt2(comSesion), color: i >= clasesBasePDF && esBono ? [255,200,50] : [0,229,160] },
+            { val: fmt2(ses.comision), color: [0,229,160] },
           ]
           row.forEach((cell, j) => {
             txt(String(cell.val), cx, y+4, 7, false, cell.color)
