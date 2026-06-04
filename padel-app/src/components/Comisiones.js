@@ -140,11 +140,40 @@ export default function Comisiones() {
   const filtrarIns = (ins) => {
     if (modoFiltro === 'mes') return ins.filter(i => i.mes === mesSeleccionado)
     if (modoFiltro === 'rango') {
+      const DIAS_MAP_F = { 'Lunes':1,'Martes':2,'Miércoles':3,'Jueves':4,'Viernes':5,'Sábado':6,'Domingo':0 }
+      const desdeD = desde ? new Date(desde + 'T12:00:00') : null
+      const hastaD = hasta ? new Date(hasta + 'T12:00:00') : null
       return ins.filter(i => {
-        const fecha = i.clases?.fecha_inicio
-        if (!fecha) return false
-        if (desde && fecha < desde) return false
-        if (hasta && fecha > hasta) return false
+        const clase = i.clases
+        if (!clase?.fecha_inicio) return false
+        const fi = new Date(clase.fecha_inicio + 'T12:00:00')
+        const ff = clase.fecha_fin ? new Date(clase.fecha_fin + 'T12:00:00') : fi
+        // Para clases únicas: la fecha debe caer en el rango
+        if (clase.modalidad === 'Clase única') {
+          if (desdeD && fi < desdeD) return false
+          if (hastaD && fi > hastaD) return false
+          return true
+        }
+        // Para Semanal/Promo: verificar que alguna sesión del día cae en el rango
+        const diaSemana = DIAS_MAP_F[clase.dia]
+        if (diaSemana !== undefined) {
+          // La clase existe si: fecha_inicio <= hasta Y fecha_fin >= desde
+          if (hastaD && fi > hastaD) return false
+          if (desdeD && ff < desdeD) return false
+          // Verificar que el día de la semana cae dentro del rango efectivo
+          const rangoInicio = desdeD && fi < desdeD ? desdeD : fi
+          const rangoFin = hastaD && ff > hastaD ? hastaD : ff
+          const d = new Date(rangoInicio)
+          let found = false
+          for (let i = 0; i <= 6; i++) {
+            if (d.getDay() === diaSemana && d <= rangoFin) { found = true; break }
+            d.setDate(d.getDate() + 1)
+          }
+          return found
+        }
+        // Sin día definido: usar fecha_inicio
+        if (desdeD && fi < desdeD) return false
+        if (hastaD && fi > hastaD) return false
         return true
       })
     }
