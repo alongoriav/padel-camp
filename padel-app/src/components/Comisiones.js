@@ -59,12 +59,7 @@ function calcComisionPorIns(inscripcion, coach) {
   if (!inscripcion.pagado && !esPromo) return 0
   // Si tiene override manual, usar ese valor directamente
   if (inscripcion.comision_override != null) return inscripcion.comision_override
-  let factorPromo = 1
-  if (esPromo) {
-    const mesIdx = MESES_IDX_COM.indexOf((inscripcion.mes || '').toLowerCase())
-    const anio = inscripcion.anio || 2026
-    factorPromo = (anio > 2026 || (anio === 2026 && mesIdx >= 4)) ? 0.5 : 1
-  }
+  // Promo: $300 fijo
   let comision = 0
   const tipo = inscripcion.clases?.tipo
   if (coach.esquema_comision === 'Porcentaje') {
@@ -75,7 +70,7 @@ function calcComisionPorIns(inscripcion, coach) {
     if (tipo === 'Privada') comision = Math.round(coach.tarifa_privada_fija || 0)
     else comision = Math.round((inscripcion.monto_cobrado || 0) * (coach.porcentaje_comision || 0))
   }
-  return Math.round(comision * factorPromo)
+  return Math.round(comision)
 }
 
 function calcComision(coach, clases, ingresoTeorico) {
@@ -230,22 +225,23 @@ export default function Comisiones() {
 
       const cobrado = insMes.filter(i => i.pagado).reduce((a, i) => a + (i.monto_cobrado || 0), 0)
 
-      // Comisión agregada sobre total de sesiones reales
-      const comisionBruta = calcComision(coach, clasesUnicas, ingresoTeorico)
-      // Descuento proporcional por sesiones Promo de mayo en adelante
+      // Comisión: normal según esquema + $300 fijo por cada sesión Promo
       const seenPromo = new Set()
       let sesionesPromo = 0
       insParaComision.forEach(i => {
         const esPromo = i.clases?.modalidad === 'Promo' || i.metodo_pago === 'Promo'
         if (!esPromo || seenPromo.has(i.clase_id)) return
         seenPromo.add(i.clase_id)
-        const mesIdx = MESES_LIST.indexOf((i.mes || '').toLowerCase())
-        const anio = i.anio || 2026
-        if (anio > 2026 || (anio === 2026 && mesIdx >= 4))
-          sesionesPromo += contarSesiones(i.clases, resumenDesde, resumenHasta)
+        sesionesPromo += contarSesiones(i.clases, resumenDesde, resumenHasta)
       })
-      const descuento = clasesUnicas > 0 ? Math.round(comisionBruta * (sesionesPromo / clasesUnicas) * 0.5) : 0
-      const comision = comisionBruta - descuento
+      const insNormales = insParaComision.filter(i => i.clases?.modalidad !== 'Promo' && i.metodo_pago !== 'Promo')
+      const seenNorm = new Set()
+      let clasesUnicasNorm = 0
+      insNormales.forEach(i => {
+        if (!seenNorm.has(i.clase_id)) { seenNorm.add(i.clase_id); clasesUnicasNorm += contarSesiones(i.clases, resumenDesde, resumenHasta) }
+      })
+      const comisionNormal = calcComision(coach, clasesUnicasNorm, ingresoTeorico)
+      const comision = comisionNormal + (sesionesPromo * Math.round(300 / 1.16))
 
       return { coach, clasesUnicas, ingresoTeorico, cobrado, comision }
     }).filter(r => r.clasesUnicas > 0 || coaches.length <= 6)
@@ -348,11 +344,6 @@ export default function Comisiones() {
           const esPromoModalidad = modalidad === 'Promo' || modalidad === 'Cortesía'
           const p = insCoachAll.filter(x => x.clase_id === i.clase_id).length
           let factorP = 1
-          if (esPromoMetodo || esPromoModalidad) {
-            const mesIdx = MESES_IDX_PDF.indexOf((i.mes || '').toLowerCase())
-            const anio = i.anio || 2026
-            factorP = (anio > 2026 || (anio === 2026 && mesIdx >= 4)) ? 0.5 : 1
-          }
           if (esPromoModalidad) {
             ingresoTeoricoPDF += calcValorTeorico(modalidad, p) * factorP
           } else if (esPromoMetodo) {
@@ -375,22 +366,23 @@ export default function Comisiones() {
           comDesde = desde ? new Date(desde + 'T00:00:00') : new Date('2026-01-01')
           comHasta = hasta ? new Date(hasta + 'T23:59:59') : new Date()
         }
-        // Comisión agregada sobre total de sesiones reales
-        const comisionBrutaPDF = calcComision(r.coach, r.clasesUnicas, ingresoTeoricoPDF)
-        // Descuento proporcional por sesiones Promo de mayo en adelante
+        // Comisión normal (sin Promo) + $300 fijo por cada sesión Promo en el rango
         const seenPromoPDF = new Set()
         let sesionesPromoPDF = 0
         insCoachPDF.forEach(i => {
           const esPromo = i.clases?.modalidad === 'Promo' || i.metodo_pago === 'Promo'
           if (!esPromo || seenPromoPDF.has(i.clase_id)) return
           seenPromoPDF.add(i.clase_id)
-          const mesIdx = MESES_IDX_PDF.indexOf((i.mes || '').toLowerCase())
-          const anio = i.anio || 2026
-          if (anio > 2026 || (anio === 2026 && mesIdx >= 4))
-            sesionesPromoPDF += contarSesiones(i.clases, comDesde, comHasta)
+          sesionesPromoPDF += contarSesiones(i.clases, comDesde, comHasta)
         })
-        const descuentoPDF = r.clasesUnicas > 0 ? Math.round(comisionBrutaPDF * (sesionesPromoPDF / r.clasesUnicas) * 0.5) : 0
-        const totalAPagar = comisionBrutaPDF - descuentoPDF
+        const insNormalesPDF = insCoachPDF.filter(i => i.clases?.modalidad !== 'Promo' && i.metodo_pago !== 'Promo')
+        const seenNormPDF = new Set()
+        let clasesNormPDF = 0
+        insNormalesPDF.forEach(i => {
+          if (!seenNormPDF.has(i.clase_id)) { seenNormPDF.add(i.clase_id); clasesNormPDF += contarSesiones(i.clases, comDesde, comHasta) }
+        })
+        const comisionNormalPDF = calcComision(r.coach, clasesNormPDF, ingresoTeoricoPDF)
+        const totalAPagar = comisionNormalPDF + (sesionesPromoPDF * Math.round(300 / 1.16))
         const comisionClases = totalAPagar - baseProporcional
 
         // Header
@@ -509,6 +501,8 @@ export default function Comisiones() {
 
         const calcComisionPorSesion = (inscripciones_clase, clase) => {
           if (!inscripciones_clase || inscripciones_clase.length === 0) return 0
+          // Promo: $300 fijo por sesión
+          if (clase?.modalidad === 'Promo' || inscripciones_clase.some(i => i.metodo_pago === 'Promo')) return Math.round(300 / 1.16)
           // Sumar monto_cobrado de todas las inscripciones de esta clase
           const montoMensual = inscripciones_clase.reduce((s, i) => s + (i.monto_cobrado || 0), 0)
           if (montoMensual === 0) return 0
