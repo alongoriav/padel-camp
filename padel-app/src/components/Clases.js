@@ -402,8 +402,35 @@ export default function Clases({ usuario }) {
       const ins = inscripciones.filter(i => i.clase_id === c.id)
       if (!ins.some(i => i.mes === filterMes)) return false
     }
-    if (filterDesde && c.fecha_inicio < filterDesde) return false
-    if (filterHasta && c.fecha_inicio > filterHasta) return false
+    // Filtro por rango: incluir clases semanales donde alguna sesión cae en el rango
+    if (filterDesde || filterHasta) {
+      const DIAS_MAP_C = { 'Lunes':1,'Martes':2,'Miércoles':3,'Jueves':4,'Viernes':5,'Sábado':6,'Domingo':0 }
+      const desdeD = filterDesde ? new Date(filterDesde + 'T12:00:00') : null
+      const hastaD = filterHasta ? new Date(filterHasta + 'T12:00:00') : null
+      const fi = new Date((c.fecha_inicio || '') + 'T12:00:00')
+      const ff = c.fecha_fin ? new Date(c.fecha_fin + 'T12:00:00') : fi
+      if (c.modalidad === 'Clase única') {
+        if (desdeD && fi < desdeD) return false
+        if (hastaD && fi > hastaD) return false
+      } else if (c.dia && DIAS_MAP_C[c.dia] !== undefined) {
+        // Clase semanal: verificar que fecha_inicio <= hasta Y fecha_fin >= desde
+        if (hastaD && fi > hastaD) return false
+        if (desdeD && ff < desdeD) return false
+        // Verificar que el día de la semana cae en el rango efectivo
+        const rInicio = desdeD && fi < desdeD ? desdeD : fi
+        const rFin = hastaD && ff > hastaD ? hastaD : ff
+        const d = new Date(rInicio)
+        let ok = false
+        for (let i = 0; i <= 6; i++) {
+          if (d.getDay() === DIAS_MAP_C[c.dia] && d <= rFin) { ok = true; break }
+          d.setDate(d.getDate() + 1)
+        }
+        if (!ok) return false
+      } else {
+        if (desdeD && fi < desdeD) return false
+        if (hastaD && fi > hastaD) return false
+      }
+    }
     return true
   })
 
