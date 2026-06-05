@@ -366,11 +366,81 @@ export default function Comisiones() {
           comDesde = desde ? new Date(desde + 'T00:00:00') : new Date('2026-01-01')
           comHasta = hasta ? new Date(hasta + 'T23:59:59') : new Date()
         }
-        // Comisión normal (sin Promo) + $300 fijo por cada sesión Promo en el rango
-        // totalAPagar se calcula DESPUÉS de construir sesiones (suma real de comisiones)
-        // Se asigna como placeholder aquí y se recalcula abajo
-        let comisionClases = 0  // se recalcula después de sesiones
-        let totalAPagar = 0     // se recalcula después de sesiones
+        // ── PASO 1: Construir sesiones ANTES de dibujar para tener totales correctos ──
+        const DIAS_MAP_PRE = { 'Lunes':1,'Martes':2,'Miércoles':3,'Jueves':4,'Viernes':5,'Sábado':6,'Domingo':0 }
+        const DIAS_CORTO_PRE = { 0:'Dom',1:'Lun',2:'Mar',3:'Mié',4:'Jue',5:'Vie',6:'Sáb' }
+        const MESES_CORTO_PRE = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']
+        const MESES_LIST_PRE = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
+
+        const calcComisionPorSesionPRE = (inscripciones_clase, clase) => {
+          if (!inscripciones_clase || inscripciones_clase.length === 0) return 0
+          if (clase?.modalidad === 'Promo' || inscripciones_clase.some(i => i.metodo_pago === 'Promo')) return Math.round(300 / 1.16)
+          const montoMensual = inscripciones_clase.reduce((s, i) => s + (i.monto_cobrado || 0), 0)
+          if (montoMensual === 0) return 0
+          const ins0 = inscripciones_clase[0]
+          const mesIdx = MESES_LIST_PRE.indexOf((ins0?.mes || '').toLowerCase())
+          const anio = ins0?.anio || 2026
+          const mesDesde = mesIdx >= 0 ? new Date(anio, mesIdx, 1) : comDesde
+          const mesHasta = mesIdx >= 0 ? new Date(anio, mesIdx + 1, 0) : comHasta
+          const sesionesEnMes = contarSesiones(clase, mesDesde, mesHasta)
+          const valorPorSesion = sesionesEnMes > 0 ? montoMensual / sesionesEnMes : montoMensual
+          if (r.coach.esquema_comision === 'Porcentaje') {
+            const neto = r.coach.aplica_iva ? valorPorSesion / 1.16 : valorPorSesion
+            return Math.round(neto * (r.coach.porcentaje_comision || 0))
+          }
+          if (r.coach.esquema_comision === 'Bono') {
+            const cb = r.coach.clases_base || 55
+            return Math.round((r.coach.sueldo_base || 0) * pctTramo(r.clasesUnicas, cb) / Math.min(r.clasesUnicas, cb))
+          }
+          if (r.coach.esquema_comision === 'Mixto') {
+            const neto = r.coach.aplica_iva ? valorPorSesion / 1.16 : valorPorSesion
+            return Math.round((clase?.tipo === 'Privada' ? (r.coach.tarifa_privada_fija || 0) : 0) + neto * (r.coach.porcentaje_comision || 0))
+          }
+          return 0
+        }
+
+        const sesionesPreview = []
+        const claseMapPRE = {}
+        insCoachPDF.forEach(ins => {
+          const cid = ins.clase_id
+          if (!claseMapPRE[cid]) claseMapPRE[cid] = { ins, jugadores: [], inscripciones: [] }
+          if (ins.jugadores?.nombre) claseMapPRE[cid].jugadores.push(ins.jugadores.nombre)
+          claseMapPRE[cid].inscripciones.push(ins)
+        })
+
+        Object.values(claseMapPRE).forEach(({ ins, jugadores, inscripciones }) => {
+          const clase = ins.clases
+          if (!clase) return
+          const jugStr = jugadores.join(', ')
+          const comSes = calcComisionPorSesionPRE(inscripciones, clase)
+          if ((clase.modalidad === 'Semanal' || clase.modalidad === 'Promo') && clase.dia) {
+            const dSem = DIAS_MAP_PRE[clase.dia]
+            if (dSem === undefined) return
+            const fi2 = clase.fecha_inicio ? new Date(clase.fecha_inicio + 'T12:00:00') : new Date()
+            const ff2 = clase.fecha_fin ? new Date(clase.fecha_fin + 'T23:59:59') : comHasta
+            const rI = comDesde > fi2 ? comDesde : fi2
+            const rF = comHasta < ff2 ? comHasta : ff2
+            const d2 = new Date(rI)
+            while (d2 <= rF && d2.getDay() !== dSem) d2.setDate(d2.getDate() + 1)
+            while (d2 <= rF) {
+              const dd2 = String(d2.getDate()).padStart(2,'0')
+              sesionesPreview.push({ fecha: `${dd2} ${MESES_CORTO_PRE[d2.getMonth()]} ${DIAS_CORTO_PRE[d2.getDay()]}`, hora: clase.hora?.slice(0,5)||'—', tipo: clase.tipo, jugadores: jugStr, comision: comSes, sortKey: d2.getTime(), claseId: ins.clase_id })
+              d2.setDate(d2.getDate() + 7)
+            }
+          } else {
+            const fi2 = clase.fecha_inicio ? new Date(clase.fecha_inicio + 'T12:00:00') : null
+            let fechaStr = clase.dia || '—'
+            if (fi2 && !isNaN(fi2)) { const dd2 = String(fi2.getDate()).padStart(2,'0'); fechaStr = `${dd2} ${MESES_CORTO_PRE[fi2.getMonth()]} ${DIAS_CORTO_PRE[fi2.getDay()]}` }
+            sesionesPreview.push({ fecha: fechaStr, hora: clase.hora?.slice(0,5)||'—', tipo: clase.tipo, jugadores: jugStr, comision: comSes, sortKey: fi2 ? fi2.getTime() : 0, claseId: ins.clase_id })
+          }
+        })
+        sesionesPreview.sort((a, b) => a.sortKey - b.sortKey)
+
+        // Totales calculados ANTES de dibujar
+        const subTotal = sesionesPreview.reduce((s, ses) => s + (ses.comision || 0), 0)
+        const ivaDeducidoTotal = r.coach.aplica_iva ? Math.round(subTotal / (r.coach.porcentaje_comision || 1) * (r.coach.porcentaje_comision || 1) * 0.16 / 1.16 * 0) : 0
+        const comisionClases = subTotal
+        const totalAPagar = baseProporcional + comisionClases
 
         // Header
         doc.setFillColor(15, 17, 26)
@@ -422,35 +492,41 @@ export default function Comisiones() {
         doc.setFillColor(0, 229, 160)
         doc.rect(M, y, W-M*2, 0.5, 'F')
         y += 5
-        txt(`TOTAL A PAGAR: ${fmt2(baseProporcional)} + ${fmt2(comisionClases)} =`, M, y, 9, false, [130,150,180])
-        txt(fmt2(totalAPagar), W-M, y, 12, true, [0,229,160], 'right')
-        y += 10
+        // Subtotal / IVA / Total
+        const pctCoach = r.coach.porcentaje_comision || 0
+        // SubTotal = suma de comisiones por clase (ya calculado)
+        // Para Porcentaje con IVA: cada sesión = (ingreso/1.16)*pct
+        // Ingreso bruto = comision / pct * 1.16, IVA = ingreso_bruto - ingreso_neto
+        const ingresoNeto = r.coach.aplica_iva && pctCoach > 0 ? Math.round(comisionClases / pctCoach) : 0
+        const ingresoBruto = r.coach.aplica_iva && pctCoach > 0 ? Math.round(ingresoNeto * 1.16) : 0
+        const ivaDeducido = ingresoBruto - ingresoNeto
 
-        // Desglose IVA si aplica
-        if (r.coach.aplica_iva && comisionClases > 0) {
-          const ingresoBruto = Math.round(comisionClases / (r.coach.porcentaje_comision || 0.6) * (r.coach.porcentaje_comision || 0.6) * 1.16 / 1)
-          // Ingreso real antes del IVA: comisionClases = (ingreso/1.16) * pct
-          // ingreso_neto = comisionClases / pct, ingreso_bruto = ingreso_neto * 1.16
-          const pct = r.coach.porcentaje_comision || 0
-          const ingresoNeto = pct > 0 ? Math.round(comisionClases / pct) : 0
-          const ingresoBrutoCl = Math.round(ingresoNeto * 1.16)
-          const ivaDeducido = ingresoBrutoCl - ingresoNeto
-          doc.setFillColor(18, 22, 35)
-          doc.rect(M, y, W-M*2, 6, 'F')
-          txt('Ingreso bruto clases:', M+4, y+4.5, 7, false, [120,135,165])
-          txt(fmt2(ingresoBrutoCl), W-M-2, y+4.5, 7, false, [160,175,200], 'right')
-          y += 6
-          doc.setFillColor(18, 22, 35)
-          doc.rect(M, y, W-M*2, 6, 'F')
-          txt('IVA deducido (16%):', M+4, y+4.5, 7, false, [120,135,165])
-          txt('- ' + fmt2(ivaDeducido), W-M-2, y+4.5, 7, false, [210,80,80], 'right')
-          y += 6
-          doc.setFillColor(18, 22, 35)
-          doc.rect(M, y, W-M*2, 6, 'F')
-          txt('Ingreso neto (base de comisión):', M+4, y+4.5, 7, false, [120,135,165])
-          txt(fmt2(ingresoNeto), W-M-2, y+4.5, 7, false, [160,175,200], 'right')
-          y += 8
+        // Fila SubTotal
+        doc.setFillColor(20, 26, 40)
+        doc.rect(M, y, W-M*2, 8, 'F')
+        txt('Subtotal comisiones por clase', M+4, y+5.5, 8, false, [140,155,185])
+        txt(fmt2(comisionClases), W-M-2, y+5.5, 9, true, [200,215,240], 'right')
+        y += 9
+
+        // Fila IVA (informativa, ya incluido en el subtotal)
+        if (r.coach.aplica_iva && ivaDeducido > 0) {
+          doc.setFillColor(18, 22, 34)
+          doc.rect(M, y, W-M*2, 7, 'F')
+          txt('IVA incluido (16%)', M+4, y+5, 7.5, false, [120,135,165])
+          txt(fmt2(ivaDeducido), W-M-2, y+5, 7.5, false, [160,175,200], 'right')
+          y += 7
         }
+
+        // Fila Total
+        doc.setFillColor(0, 229, 160, 0.1)
+        doc.setFillColor(15, 30, 25)
+        doc.rect(M, y, W-M*2, 9, 'F')
+        doc.setDrawColor(0, 229, 160)
+        doc.setLineWidth(0.3)
+        doc.rect(M, y, W-M*2, 9, 'S')
+        txt(`TOTAL A PAGAR (base $${fmt2(baseProporcional)} + clases $${fmt2(comisionClases)})`, M+4, y+6, 8, true, [0,229,160])
+        txt(fmt2(totalAPagar), W-M-2, y+6, 11, true, [0,229,160], 'right')
+        y += 14
 
         // Table title
         txt('CLASES DEL PERIODO', M, y, 8, true, [80,100,130])
@@ -552,9 +628,9 @@ export default function Comisiones() {
           return 0
         }
 
-        // Expand each clase into real sessions
-        const sesiones = []
-        Object.values(claseMapPDF).forEach(({ ins, jugadores, inscripciones }) => {
+        // Usar sesiones ya calculadas (sesionesPreview) para la tabla
+        const sesiones = sesionesPreview
+        if (false) Object.values(claseMapPDF).forEach(({ ins, jugadores, inscripciones }) => {
           const clase = ins.clases
           if (!clase) return
           const jugStr = jugadores.join(', ')
@@ -602,12 +678,8 @@ export default function Comisiones() {
           }
         })
 
-        // Sort chronologically
-        sesiones.sort((a, b) => a.sortKey - b.sortKey)
-
-        // totalAPagar = suma REAL de comisiones por sesión (consistente con la tabla)
-        comisionClases = sesiones.reduce((s, ses) => s + (ses.comision || 0), 0)
-        totalAPagar = baseProporcional + comisionClases
+        }) // cierre del if(false)
+        // Sort ya hecho en sesionesPreview
 
         sesiones.forEach((ses, i) => {
           if (y > 270) { doc.addPage(); y = M }
