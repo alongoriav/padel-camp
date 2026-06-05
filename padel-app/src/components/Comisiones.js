@@ -124,7 +124,7 @@ export default function Comisiones() {
   const fetchData = async () => {
     const [{ data: cs }, { data: ins }, { data: cl }] = await Promise.all([
       supabase.from('coaches').select('*').order('nombre'),
-      supabase.from('inscripciones').select('*, jugadores(nombre), clases(coach_id, tipo, modalidad, fecha_inicio, fecha_fin, dia, hora)'),
+      supabase.from('inscripciones').select('*, jugadores(nombre), clases(coach_id, tipo, modalidad, fecha_inicio, fecha_fin, dia, hora), ausencias(fecha)'),
       supabase.from('clases').select('*'),
     ])
     setCoaches(cs || [])
@@ -198,13 +198,19 @@ export default function Comisiones() {
         return i.pagado
       })
 
-      // Total sesiones únicas
+      // Total sesiones únicas (restando ausencias del jugador en el rango)
       const seenAll = new Set()
       let clasesUnicas = 0
       insParaComision.forEach(i => {
         if (!seenAll.has(i.clase_id)) {
           seenAll.add(i.clase_id)
-          clasesUnicas += contarSesiones(i.clases, resumenDesde, resumenHasta)
+          const totalSes = contarSesiones(i.clases, resumenDesde, resumenHasta)
+          // Contar ausencias de ESTE jugador que caen en el rango
+          const ausRango = (i.ausencias || []).filter(a => {
+            const af = a.fecha || a
+            return af >= resumenDesde.toISOString().slice(0,10) && af <= resumenHasta.toISOString().slice(0,10)
+          }).length
+          clasesUnicas += Math.max(0, totalSes - ausRango)
         }
       })
 
@@ -380,8 +386,11 @@ export default function Comisiones() {
           const anio = ins?.anio || 2026
           const mesDesde = mesIdx >= 0 ? new Date(anio, mesIdx, 1) : comDesde
           const mesHasta = mesIdx >= 0 ? new Date(anio, mesIdx + 1, 0) : comHasta
-          const sesionesEnMes = contarSesiones(clase, mesDesde, mesHasta)
-          const valorSesion = sesionesEnMes > 0 ? (ins.monto_cobrado || 0) / sesionesEnMes : (ins.monto_cobrado || 0)
+          // Sesiones totales menos ausencias de este jugador en el mes
+          const sesionesTotales = contarSesiones(clase, mesDesde, mesHasta)
+          const ausenciasIns = (ins.ausencias || []).length
+          const sesionesEfectivas = Math.max(1, sesionesTotales - ausenciasIns)
+          const valorSesion = sesionesEfectivas > 0 ? (ins.monto_cobrado || 0) / sesionesEfectivas : (ins.monto_cobrado || 0)
           if (r.coach.esquema_comision === 'Porcentaje') {
             const neto = r.coach.aplica_iva ? valorSesion / 1.16 : valorSesion
             return Math.round(neto * (r.coach.porcentaje_comision || 0))
