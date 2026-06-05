@@ -75,6 +75,7 @@ export default function Agenda({ usuario }) {
   const [fechasNueva, setFechasNueva] = useState([])
   const [jugadoresClase, setJugadoresClase] = useState([])
   const [checkinFechas, setCheckinFechas] = useState({})
+  const [fechasExcluidasMap, setFechasExcluidasMap] = useState({}) // {jugador_id: Set(dateStr)}
   const [busqueda, setBusqueda] = useState('')
   const [busquedaDetalle, setBusquedaDetalle] = useState('')
   const [fechaEntradaDetalle, setFechaEntradaDetalle] = useState('')
@@ -306,7 +307,8 @@ export default function Agenda({ usuario }) {
   )
 
   const participantes = jugadoresClase.length || 1
-  const numClases = formNueva.modalidad === 'Semanal' ? fechasNueva.length : 1
+  const fechasExcluidasGlobal = jugadoresClase.length > 0 ? (fechasExcluidasMap[jugadoresClase[0]?.jugador_id] || new Set()) : new Set()
+  const numClases = formNueva.modalidad === 'Semanal' ? Math.max(1, fechasNueva.filter(f => !fechasExcluidasGlobal.has(f.toISOString().slice(0,10))).length) : 1
   const montoPorJugador = calcMonto(formNueva.modalidad, participantes, numClases)
 
   const guardarNueva = async () => {
@@ -338,8 +340,13 @@ export default function Agenda({ usuario }) {
         if (jug?.metodo === 'Check-in') {
           await guardarCheckins(ins.id, checkinFechas[jug.jugador_id] || [])
         }
+        const excluidas = [...(fechasExcluidasMap[jug?.jugador_id] || [])]
+        if (excluidas.length > 0) {
+          await supabase.from('ausencias').insert(excluidas.map(f => ({ inscripcion_id: ins.id, fecha: f })))
+        }
       }
     }
+    setFechasExcluidasMap({})
     showToast('Clase creada ✓')
     setModalNueva(false)
     fetchData()
@@ -633,8 +640,50 @@ export default function Agenda({ usuario }) {
               </div>
 
               {formNueva.modalidad === 'Semanal' && fechasNueva.length > 0 && (
-                <div style={{ background: 'rgba(0,229,160,.06)', border: '1px solid rgba(0,229,160,.2)', borderRadius: 8, padding: '10px 14px', fontSize: 13, color: 'var(--text2)' }}>
-                  📅 {fechasNueva.length} clases: {fechasNueva.map(f => f.toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })).join(' · ')}
+                <div style={{ background: 'rgba(0,229,160,.06)', border: '1px solid rgba(0,229,160,.2)', borderRadius: 8, padding: '10px 14px', fontSize: 13 }}>
+                  <div style={{ color: 'var(--text2)', marginBottom: 8, fontWeight: 600 }}>
+                    📅 Selecciona las fechas de asistencia — las desmarcadas no se cobran:
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                    {fechasNueva.map(f => {
+                      const ds = f.toISOString().slice(0,10)
+                      const label = f.toLocaleDateString('es-MX', { weekday: 'short', day: 'numeric', month: 'short' })
+                      // Todas las fechas aplican a todos los jugadores agregados
+                      const algunaExcluida = jugadoresClase.some(j => fechasExcluidasMap[j.jugador_id]?.has(ds))
+                      return (
+                        <label key={ds} style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer',
+                          background: algunaExcluida ? 'rgba(255,59,48,.08)' : 'rgba(0,229,160,.1)',
+                          border: `1px solid ${algunaExcluida ? 'rgba(255,59,48,.3)' : 'rgba(0,229,160,.3)'}`,
+                          borderRadius: 6, padding: '4px 10px', fontSize: 12 }}>
+                          <input type="checkbox" defaultChecked
+                            onChange={e => {
+                              const checked = e.target.checked
+                              setFechasExcluidasMap(prev => {
+                                const next = { ...prev }
+                                jugadoresClase.forEach(j => {
+                                  const s = new Set(prev[j.jugador_id] || [])
+                                  if (!checked) s.add(ds); else s.delete(ds)
+                                  next[j.jugador_id] = s
+                                })
+                                return next
+                              })
+                            }} />
+                          {label}
+                        </label>
+                      )
+                    })}
+                  </div>
+                  {(() => {
+                    const excluidas = jugadoresClase.length > 0
+                      ? [...(fechasExcluidasMap[jugadoresClase[0]?.jugador_id] || [])].length
+                      : 0
+                    const seleccionadas = fechasNueva.length - excluidas
+                    return excluidas > 0 && (
+                      <div style={{ marginTop: 8, fontSize: 12, color: 'var(--danger)' }}>
+                        ⚠️ {excluidas} fecha{excluidas !== 1 ? 's' : ''} excluida{excluidas !== 1 ? 's' : ''} — se cobrarán {seleccionadas} clase{seleccionadas !== 1 ? 's' : ''}
+                      </div>
+                    )
+                  })()}
                 </div>
               )}
 
