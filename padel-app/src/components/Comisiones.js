@@ -372,20 +372,18 @@ export default function Comisiones() {
         const MESES_CORTO_PRE = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']
         const MESES_LIST_PRE = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
 
-        const calcComisionPorSesionPRE = (inscripciones_clase, clase) => {
-          if (!inscripciones_clase || inscripciones_clase.length === 0) return 0
-          if (clase?.modalidad === 'Promo' || inscripciones_clase.some(i => i.metodo_pago === 'Promo')) return Math.round(300 / 1.16)
-          const montoMensual = inscripciones_clase.reduce((s, i) => s + (i.monto_cobrado || 0), 0)
-          if (montoMensual === 0) return 0
-          const ins0 = inscripciones_clase[0]
-          const mesIdx = MESES_LIST_PRE.indexOf((ins0?.mes || '').toLowerCase())
-          const anio = ins0?.anio || 2026
+        // Calcula comisión de UN jugador para una sesión
+        const comisionPorJugador = (ins, clase) => {
+          const esPromo = ins.metodo_pago === 'Promo' || clase?.modalidad === 'Promo'
+          if (esPromo) return Math.round(300 / 1.16)
+          const mesIdx = MESES_LIST_PRE.indexOf((ins?.mes || '').toLowerCase())
+          const anio = ins?.anio || 2026
           const mesDesde = mesIdx >= 0 ? new Date(anio, mesIdx, 1) : comDesde
           const mesHasta = mesIdx >= 0 ? new Date(anio, mesIdx + 1, 0) : comHasta
           const sesionesEnMes = contarSesiones(clase, mesDesde, mesHasta)
-          const valorPorSesion = sesionesEnMes > 0 ? montoMensual / sesionesEnMes : montoMensual
+          const valorSesion = sesionesEnMes > 0 ? (ins.monto_cobrado || 0) / sesionesEnMes : (ins.monto_cobrado || 0)
           if (r.coach.esquema_comision === 'Porcentaje') {
-            const neto = r.coach.aplica_iva ? valorPorSesion / 1.16 : valorPorSesion
+            const neto = r.coach.aplica_iva ? valorSesion / 1.16 : valorSesion
             return Math.round(neto * (r.coach.porcentaje_comision || 0))
           }
           if (r.coach.esquema_comision === 'Bono') {
@@ -393,10 +391,16 @@ export default function Comisiones() {
             return Math.round((r.coach.sueldo_base || 0) * pctTramo(r.clasesUnicas, cb) / Math.min(r.clasesUnicas, cb))
           }
           if (r.coach.esquema_comision === 'Mixto') {
-            const neto = r.coach.aplica_iva ? valorPorSesion / 1.16 : valorPorSesion
+            const neto = r.coach.aplica_iva ? valorSesion / 1.16 : valorSesion
             return Math.round((clase?.tipo === 'Privada' ? (r.coach.tarifa_privada_fija || 0) : 0) + neto * (r.coach.porcentaje_comision || 0))
           }
           return 0
+        }
+
+        // Suma comisión de todos los jugadores de la clase
+        const calcComisionPorSesionPRE = (inscripciones_clase, clase) => {
+          if (!inscripciones_clase || inscripciones_clase.length === 0) return 0
+          return inscripciones_clase.reduce((sum, ins) => sum + comisionPorJugador(ins, clase), 0)
         }
 
         const sesionesPreview = []
@@ -590,42 +594,7 @@ export default function Comisiones() {
 
         const calcComisionPorSesion = (inscripciones_clase, clase) => {
           if (!inscripciones_clase || inscripciones_clase.length === 0) return 0
-          // Promo: $300 fijo por sesión
-          if (clase?.modalidad === 'Promo' || inscripciones_clase.some(i => i.metodo_pago === 'Promo')) return Math.round(300 / 1.16)
-          // Sumar monto_cobrado de todas las inscripciones de esta clase
-          const montoMensual = inscripciones_clase.reduce((s, i) => s + (i.monto_cobrado || 0), 0)
-          if (montoMensual === 0) return 0
-
-          // Calcular cuántas sesiones tiene esta clase en su mes completo
-          const ins0 = inscripciones_clase[0]
-          const mesIdx = MESES_LIST_PDF.indexOf((ins0?.mes || '').toLowerCase())
-          const anio = ins0?.anio || 2026
-          let mesDesde, mesHasta
-          if (mesIdx >= 0) {
-            mesDesde = new Date(anio, mesIdx, 1)
-            mesHasta = new Date(anio, mesIdx + 1, 0)
-          } else {
-            mesDesde = pdfDesde
-            mesHasta = pdfHasta
-          }
-          const sesionesEnMes = contarSesiones(clase, mesDesde, mesHasta)
-          const valorPorSesion = sesionesEnMes > 0 ? montoMensual / sesionesEnMes : montoMensual
-
-          // Aplicar esquema de comisión sobre el valor por sesión
-          if (r.coach.esquema_comision === 'Porcentaje') {
-            const neto = r.coach.aplica_iva ? valorPorSesion / 1.16 : valorPorSesion
-            return Math.round(neto * (r.coach.porcentaje_comision || 0))
-          }
-          if (r.coach.esquema_comision === 'Bono') {
-            const clasesBasePDF = r.coach.clases_base || 55
-            return Math.round((r.coach.sueldo_base || 0) * pctTramo(r.clasesUnicas, clasesBasePDF) / Math.min(r.clasesUnicas, clasesBasePDF))
-          }
-          if (r.coach.esquema_comision === 'Mixto') {
-            const neto = r.coach.aplica_iva ? valorPorSesion / 1.16 : valorPorSesion
-            const esPrivada = clase?.tipo === 'Privada'
-            return Math.round((esPrivada ? (r.coach.tarifa_privada_fija || 0) : 0) + neto * (r.coach.porcentaje_comision || 0))
-          }
-          return 0
+          return inscripciones_clase.reduce((sum, ins) => sum + comisionPorJugador(ins, clase), 0)
         }
 
         // Usar sesiones ya calculadas (sesionesPreview) para la tabla
