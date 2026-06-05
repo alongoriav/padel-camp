@@ -630,56 +630,6 @@ export default function Comisiones() {
 
         // Usar sesiones ya calculadas (sesionesPreview) para la tabla
         const sesiones = sesionesPreview
-        if (false) Object.values(claseMapPDF).forEach(({ ins, jugadores, inscripciones }) => {
-          const clase = ins.clases
-          if (!clase) return
-          const jugStr = jugadores.join(', ')
-          const comisionEstaSesion = calcComisionPorSesion(inscripciones, clase)
-
-          if ((clase.modalidad === 'Semanal' || clase.modalidad === 'Promo' || clase.modalidad === 'Cortêsía') && clase.dia) {
-            const diaSemana = DIAS_MAP_PDF[clase.dia]
-            if (diaSemana === undefined) return
-            const claseInicio = clase.fecha_inicio ? new Date(clase.fecha_inicio + 'T12:00:00') : new Date()
-            const claseFin = clase.fecha_fin ? new Date(clase.fecha_fin + 'T23:59:59') : pdfHasta
-            const rangoInicio = pdfDesde > claseInicio ? pdfDesde : claseInicio
-            const rangoFin = pdfHasta < claseFin ? pdfHasta : claseFin
-            const d = new Date(rangoInicio)
-            while (d <= rangoFin && d.getDay() !== diaSemana) d.setDate(d.getDate() + 1)
-            while (d <= rangoFin) {
-              const dd = String(d.getDate()).padStart(2,'0')
-              sesiones.push({
-                fecha: dd + ' ' + MESES_CORTO_PDF[d.getMonth()] + ' ' + DIAS_CORTO_PDF[d.getDay()],
-                hora: clase.hora?.slice(0,5) || '—',
-                tipo: clase.tipo,
-                jugadores: jugStr,
-                comision: comisionEstaSesion,
-                sortKey: d.getTime(),
-                claseId: ins.clase_id
-              })
-              d.setDate(d.getDate() + 7)
-            }
-          } else {
-            // Clase única o Promo sin día — usar fecha_inicio (T12:00 evita desfase UTC/CST)
-            const fi = clase.fecha_inicio ? new Date(clase.fecha_inicio + 'T12:00:00') : null
-            let fechaStr = clase.dia || '—'
-            if (fi && !isNaN(fi)) {
-              const dd = String(fi.getDate()).padStart(2,'0')
-              fechaStr = dd + ' ' + MESES_CORTO_PDF[fi.getMonth()] + ' ' + DIAS_CORTO_PDF[fi.getDay()]
-            }
-            sesiones.push({
-              fecha: fechaStr,
-              hora: clase.hora?.slice(0,5) || '—',
-              tipo: clase.tipo,
-              jugadores: jugStr,
-              comision: comisionEstaSesion,
-              sortKey: fi ? fi.getTime() : 0,
-              claseId: ins.clase_id
-            })
-          }
-        })
-
-        }) // cierre del if(false)
-        // Sort ya hecho en sesionesPreview
 
         sesiones.forEach((ses, i) => {
           if (y > 270) { doc.addPage(); y = M }
