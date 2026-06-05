@@ -9,6 +9,10 @@ const TIPOS = ['Privada','Compartida']
 const METODOS = ['Efectivo','Tarjeta','Transferencia','Check-in','Pendiente','Promo']
 const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
 
+function fmtFechaLocal(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+}
+
 function calcFechas(dia, fechaInicio) {
   if (!fechaInicio || !dia) return []
   const diaSemana = { Lunes:1, Martes:2, Miércoles:3, Jueves:4, Viernes:5, Sábado:6, Domingo:0 }[dia]
@@ -165,7 +169,7 @@ export default function Clases({ usuario }) {
   const set = (key, val) => setForm(f => ({ ...f, [key]: val }))
 
   const fechasExcluidasGlobal = jugadoresClase.length > 0 ? (fechasExcluidasMap[jugadoresClase[0]?.jugador_id] || new Set()) : new Set()
-  const numClases = form.modalidad === 'Semanal' ? Math.max(1, fechas.filter(f => !fechasExcluidasGlobal.has(f.toISOString().slice(0,10))).length) : 1
+  const numClases = form.modalidad === 'Semanal' ? Math.max(1, fechas.filter(f => !fechasExcluidasGlobal.has(fmtFechaLocal(f))).length) : 1
   const participantes = jugadoresClase.length || 1
   const montoPorJugador = calcMonto(form.modalidad, participantes, numClases)
 
@@ -475,7 +479,7 @@ export default function Clases({ usuario }) {
           <h1 style={{ fontSize: 22, fontWeight: 700 }}>Clases</h1>
           <p style={{ color: 'var(--text2)', fontSize: 14, marginTop: 4 }}>{clasesFiltradas.length} clases</p>
         </div>
-        {isAdmin && <button className="btn btn-primary" onClick={() => { setForm(emptyForm); setJugadoresClase([]); setBusqueda(''); setModal(true) }}>+ Nueva clase</button>}
+        {/* Alta solo desde Agenda */}
       </div>
 
       {isAdmin && (
@@ -648,7 +652,7 @@ export default function Clases({ usuario }) {
                   <div style={{ fontWeight: 600, marginBottom: 8, color: 'var(--text2)' }}>📅 Selecciona fechas de asistencia:</div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                     {fechas.map(f => {
-                      const ds = f.toISOString().slice(0,10)
+                      const ds = fmtFechaLocal(f)
                       const label = f.toLocaleDateString('es-MX', { weekday: 'short', day: 'numeric', month: 'short' })
                       const algunaExcluida = jugadoresClase.some(j => fechasExcluidasMap[j.jugador_id]?.has(ds))
                       return (
