@@ -89,7 +89,7 @@ export default function Agenda({ usuario }) {
   const [nuevoJugadorDesde, setNuevoJugadorDesde] = useState('clase')
   const isAdmin = usuario?.rol === 'admin'
 
-  useEffect(() => { fetchData() }, [semana, coachFilter])
+  useEffect(() => { fetchData() }, [coachFilter])
 
   useEffect(() => {
     if (formNueva.modalidad === 'Semanal' && formNueva.dia && formNueva.fecha_inicio) {
@@ -99,27 +99,25 @@ export default function Agenda({ usuario }) {
     }
   }, [formNueva.dia, formNueva.fecha_inicio, formNueva.modalidad])
 
+  // fetchData idéntico a Clases.js — trae TODOS los datos, el calendario filtra por semana
   const fetchData = async () => {
-    const fmtDate = (d) => {
-      const y = d.getFullYear()
-      const m = String(d.getMonth()+1).padStart(2,'0')
-      const day = String(d.getDate()).padStart(2,'0')
-      return `${y}-${m}-${day}`
-    }
-    const lunes = fmtDate(semana)
-    const domingo = fmtDate(addDays(semana, 6))
-    const [{ data: cs }, { data: cl }, { data: js }] = await Promise.all([
+    const [{ data: cs }, { data: cl }, { data: ins }, { data: js }] = await Promise.all([
       supabase.from('coaches').select('*').eq('activo', true).order('nombre'),
-      supabase.from('clases').select('*, coaches(nombre), inscripciones(*, jugadores(nombre), ausencias(fecha))')
-        .or(`and(modalidad.eq.Semanal,fecha_inicio.lte.${domingo},fecha_fin.gte.${lunes}),and(modalidad.eq.Promo,fecha_inicio.lte.${domingo},fecha_fin.gte.${lunes}),and(modalidad.eq.Cortesía,fecha_inicio.lte.${domingo},fecha_fin.gte.${lunes}),and(modalidad.eq.Clase única,fecha_inicio.gte.${lunes},fecha_inicio.lte.${domingo})`),
+      supabase.from('clases').select('*, coaches(nombre)').order('fecha_inicio', { ascending: false }),
+      supabase.from('inscripciones').select('*, jugadores(nombre), ausencias(fecha)'),
       supabase.from('jugadores').select('*').eq('activo', true).order('nombre'),
     ])
     setCoaches(cs || [])
     setJugadores(js || [])
-    let filtradas = cl || []
-    if (!isAdmin && usuario?.coach_id) filtradas = filtradas.filter(c => c.coach_id === usuario.coach_id)
-    if (coachFilter) filtradas = filtradas.filter(c => c.coach_id === coachFilter)
-    setClases(filtradas)
+    // Unir inscripciones en clases (igual que Clases.js lo hace client-side)
+    const insData = ins || []
+    let clasesConIns = (cl || []).map(c => ({
+      ...c,
+      inscripciones: insData.filter(i => i.clase_id === c.id)
+    }))
+    if (!isAdmin && usuario?.coach_id) clasesConIns = clasesConIns.filter(c => c.coach_id === usuario.coach_id)
+    if (coachFilter) clasesConIns = clasesConIns.filter(c => c.coach_id === coachFilter)
+    setClases(clasesConIns)
   }
 
   const crearYAgregarJugador = async () => {
@@ -184,46 +182,44 @@ export default function Agenda({ usuario }) {
   const diasSemana = DIAS_SEMANA.map((d, i) => ({ nombre: d, fecha: addDays(semana, i) }))
 
   const getClasesEnSlot = (dia, hora) => {
-    // Fecha exacta del slot para filtrar ausencias
     const fechaDiaObj = diasSemana.find(d => d.nombre === dia)?.fecha
     const fechaSlotStr = fechaDiaObj
       ? `${fechaDiaObj.getFullYear()}-${String(fechaDiaObj.getMonth()+1).padStart(2,'0')}-${String(fechaDiaObj.getDate()).padStart(2,'0')}`
       : null
 
     return clases.filter(c => {
-      const horaClase = c.hora?.slice(0,5)
-      if (horaClase !== hora) return false
+      if (c.hora?.slice(0,5) !== hora) return false
+      if (!fechaSlotStr) return false
+
       let enSlot = false
-      if (c.modalidad === 'Semanal') enSlot = c.dia === dia
-      else if (c.modalidad === 'Promo' || c.modalidad === 'Cortesía') {
-        if (c.dia) enSlot = c.dia === dia
-        else enSlot = fechaSlotStr ? c.fecha_inicio === fechaSlotStr : false
-      }
-      else if (c.modalidad === 'Clase única') {
-        enSlot = fechaSlotStr ? c.fecha_inicio === fechaSlotStr : false
+      if (c.modalidad === 'Semanal' || (c.modalidad === 'Promo' && c.dia) || (c.modalidad === 'Cortesía' && c.dia)) {
+        // Clase semanal: el día de semana coincide Y la fecha del slot está dentro del rango
+        if (c.dia !== dia) return false
+        const fi = c.fecha_inicio || '0000-00-00'
+        const ff = c.fecha_fin || '9999-12-31'
+        enSlot = fechaSlotStr >= fi && fechaSlotStr <= ff
+      } else if (c.modalidad === 'Clase única' || (c.modalidad === 'Promo' && !c.dia)) {
+        enSlot = c.fecha_inicio === fechaSlotStr
       }
       if (!enSlot) return false
 
-      // Filtrar jugadores con ausencia en esta fecha
-      if (fechaSlotStr) {
-        const insActivas = (c.inscripciones || []).filter(i => {
-          const ausencias = i.ausencias || []
-          return !ausencias.some(a => (a.fecha || a) === fechaSlotStr)
-        })
-        // Reemplazar inscripciones con solo las activas para este slot
-        c._insSlot = insActivas
-        // Si todas tienen ausencia, no mostrar el bloque
-        return insActivas.length > 0
-      }
-      c._insSlot = c.inscripciones || []
-      return true
+      // Filtrar jugadores con ausencia en esta fecha exacta
+      const insActivas = (c.inscripciones || []).filter(i =>
+        !(i.ausencias || []).some(a => (a.fecha || a) === fechaSlotStr)
+      )
+      c._insSlot = insActivas
+      return insActivas.length > 0
     })
   }
 
   const abrirDetalle = async (c) => {
     setDetalleClase(c)
-    const { data } = await supabase.from('inscripciones').select('*, jugadores(nombre), clases(fecha_inicio, clases_en_rango, modalidad, tipo)').eq('clase_id', c.id)
-    setInscripcionesDetalle(data || [])
+    // Usar inscripciones ya cargadas (espejo exacto de Clases.js)
+    const insLocal = (c.inscripciones || []).map(i => ({ ...i, clases: c }))
+    setInscripcionesDetalle(insLocal)
+    // Refrescar desde BD para tener datos actualizados
+    const { data } = await supabase.from('inscripciones').select('*, jugadores(nombre), ausencias(fecha)').eq('clase_id', c.id)
+    if (data) setInscripcionesDetalle(data.map(i => ({ ...i, clases: c })))
     setBusquedaDetalle('')
   }
 
