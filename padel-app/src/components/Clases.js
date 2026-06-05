@@ -60,12 +60,8 @@ function calcComisionAuto(inscripcion, coaches, detalle) {
   const esPromo = inscripcion.metodo_pago === 'Promo'
   if (!inscripcion.pagado && !esPromo) return 0
   const monto = inscripcion.monto_cobrado || 0
-  let factorPromo = 1
-  if (esPromo) {
-    const mesIdx = MESES_IDX.indexOf((inscripcion.mes || '').toLowerCase())
-    const anio = inscripcion.anio || 2026
-    factorPromo = (anio > 2026 || (anio === 2026 && mesIdx >= 4)) ? 0.5 : 1
-  }
+  // Clases Promo: $300 fijo independiente del esquema
+  if (esPromo) return Math.round(300 / 1.16)
   let comision = 0
   const tipo = inscripcion.clases?.tipo || detalle?.tipo
   if (coach.esquema_comision === 'Porcentaje') comision = Math.round(monto * (coach.porcentaje_comision || 0))
@@ -74,7 +70,7 @@ function calcComisionAuto(inscripcion, coaches, detalle) {
     if (tipo === 'Privada') comision = Math.round(coach.tarifa_privada_fija || 0)
     else comision = Math.round(monto * (coach.porcentaje_comision || 0))
   }
-  return Math.round(comision * (esPromo ? factorPromo : 1))
+  return Math.round(comision)
 }
 
 function EditableMonto({ inscripcion, onUpdate }) {
