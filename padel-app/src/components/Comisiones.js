@@ -367,23 +367,10 @@ export default function Comisiones() {
           comHasta = hasta ? new Date(hasta + 'T23:59:59') : new Date()
         }
         // Comisión normal (sin Promo) + $300 fijo por cada sesión Promo en el rango
-        const seenPromoPDF = new Set()
-        let sesionesPromoPDF = 0
-        insCoachPDF.forEach(i => {
-          const esPromo = i.clases?.modalidad === 'Promo' || i.metodo_pago === 'Promo'
-          if (!esPromo || seenPromoPDF.has(i.clase_id)) return
-          seenPromoPDF.add(i.clase_id)
-          sesionesPromoPDF += contarSesiones(i.clases, comDesde, comHasta)
-        })
-        const insNormalesPDF = insCoachPDF.filter(i => i.clases?.modalidad !== 'Promo' && i.metodo_pago !== 'Promo')
-        const seenNormPDF = new Set()
-        let clasesNormPDF = 0
-        insNormalesPDF.forEach(i => {
-          if (!seenNormPDF.has(i.clase_id)) { seenNormPDF.add(i.clase_id); clasesNormPDF += contarSesiones(i.clases, comDesde, comHasta) }
-        })
-        const comisionNormalPDF = calcComision(r.coach, clasesNormPDF, ingresoTeoricoPDF)
-        const totalAPagar = comisionNormalPDF + (sesionesPromoPDF * Math.round(300 / 1.16))
-        const comisionClases = totalAPagar - baseProporcional
+        // totalAPagar se calcula DESPUÉS de construir sesiones (suma real de comisiones)
+        // Se asigna como placeholder aquí y se recalcula abajo
+        let comisionClases = 0  // se recalcula después de sesiones
+        let totalAPagar = 0     // se recalcula después de sesiones
 
         // Header
         doc.setFillColor(15, 17, 26)
@@ -438,6 +425,32 @@ export default function Comisiones() {
         txt(`TOTAL A PAGAR: ${fmt2(baseProporcional)} + ${fmt2(comisionClases)} =`, M, y, 9, false, [130,150,180])
         txt(fmt2(totalAPagar), W-M, y, 12, true, [0,229,160], 'right')
         y += 10
+
+        // Desglose IVA si aplica
+        if (r.coach.aplica_iva && comisionClases > 0) {
+          const ingresoBruto = Math.round(comisionClases / (r.coach.porcentaje_comision || 0.6) * (r.coach.porcentaje_comision || 0.6) * 1.16 / 1)
+          // Ingreso real antes del IVA: comisionClases = (ingreso/1.16) * pct
+          // ingreso_neto = comisionClases / pct, ingreso_bruto = ingreso_neto * 1.16
+          const pct = r.coach.porcentaje_comision || 0
+          const ingresoNeto = pct > 0 ? Math.round(comisionClases / pct) : 0
+          const ingresoBrutoCl = Math.round(ingresoNeto * 1.16)
+          const ivaDeducido = ingresoBrutoCl - ingresoNeto
+          doc.setFillColor(18, 22, 35)
+          doc.rect(M, y, W-M*2, 6, 'F')
+          txt('Ingreso bruto clases:', M+4, y+4.5, 7, false, [120,135,165])
+          txt(fmt2(ingresoBrutoCl), W-M-2, y+4.5, 7, false, [160,175,200], 'right')
+          y += 6
+          doc.setFillColor(18, 22, 35)
+          doc.rect(M, y, W-M*2, 6, 'F')
+          txt('IVA deducido (16%):', M+4, y+4.5, 7, false, [120,135,165])
+          txt('- ' + fmt2(ivaDeducido), W-M-2, y+4.5, 7, false, [210,80,80], 'right')
+          y += 6
+          doc.setFillColor(18, 22, 35)
+          doc.rect(M, y, W-M*2, 6, 'F')
+          txt('Ingreso neto (base de comisión):', M+4, y+4.5, 7, false, [120,135,165])
+          txt(fmt2(ingresoNeto), W-M-2, y+4.5, 7, false, [160,175,200], 'right')
+          y += 8
+        }
 
         // Table title
         txt('CLASES DEL PERIODO', M, y, 8, true, [80,100,130])
@@ -591,6 +604,10 @@ export default function Comisiones() {
 
         // Sort chronologically
         sesiones.sort((a, b) => a.sortKey - b.sortKey)
+
+        // totalAPagar = suma REAL de comisiones por sesión (consistente con la tabla)
+        comisionClases = sesiones.reduce((s, ses) => s + (ses.comision || 0), 0)
+        totalAPagar = baseProporcional + comisionClases
 
         sesiones.forEach((ses, i) => {
           if (y > 270) { doc.addPage(); y = M }
