@@ -145,20 +145,16 @@ export default function Agenda({ usuario }) {
     const esPromo = inscripcion.metodo_pago === 'Promo'
     if (!inscripcion.pagado && !esPromo) return 0
     const monto = inscripcion.monto_cobrado || 0
-    let factorPromo = 1
-    if (esPromo) {
-      const mesIdx = MESES_IDX_A.indexOf((inscripcion.mes || '').toLowerCase())
-      const anio = inscripcion.anio || 2026
-      factorPromo = (anio > 2026 || (anio === 2026 && mesIdx >= 4)) ? 0.5 : 1
-    }
-    let comision = 0
+    // Clases Promo: $300 fijo independiente del esquema
+  if (esPromo) return Math.round(300 / 1.16)
+  let comision = 0
     if (coach.esquema_comision === 'Porcentaje') comision = Math.round(monto * (coach.porcentaje_comision || 0))
     else if (coach.esquema_comision === 'Bono') comision = coach.pago_extra_clase || 0
     else if (coach.esquema_comision === 'Mixto') {
       if (detalleClase?.tipo === 'Privada') comision = Math.round(coach.tarifa_privada_fija || 0)
       else comision = Math.round(monto * (coach.porcentaje_comision || 0))
     }
-    return Math.round(comision * (esPromo ? factorPromo : 1))
+    return Math.round(comision)
   }
 
   const guardarComisionManual = async () => {
