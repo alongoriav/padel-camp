@@ -110,7 +110,7 @@ export default function Agenda({ usuario }) {
     const domingo = fmtDate(addDays(semana, 6))
     const [{ data: cs }, { data: cl }, { data: js }] = await Promise.all([
       supabase.from('coaches').select('*').eq('activo', true).order('nombre'),
-      supabase.from('clases').select('*, coaches(nombre), inscripciones(*, jugadores(nombre))')
+      supabase.from('clases').select('*, coaches(nombre), inscripciones(*, jugadores(nombre), ausencias(fecha))')
         .or(`and(modalidad.eq.Semanal,fecha_inicio.lte.${domingo},fecha_fin.gte.${lunes}),and(modalidad.eq.Promo,fecha_inicio.lte.${domingo},fecha_fin.gte.${lunes}),and(modalidad.eq.Cortesía,fecha_inicio.lte.${domingo},fecha_fin.gte.${lunes}),and(modalidad.eq.Clase única,fecha_inicio.gte.${lunes},fecha_inicio.lte.${domingo})`),
       supabase.from('jugadores').select('*').eq('activo', true).order('nombre'),
     ])
@@ -184,28 +184,39 @@ export default function Agenda({ usuario }) {
   const diasSemana = DIAS_SEMANA.map((d, i) => ({ nombre: d, fecha: addDays(semana, i) }))
 
   const getClasesEnSlot = (dia, hora) => {
+    // Fecha exacta del slot para filtrar ausencias
+    const fechaDiaObj = diasSemana.find(d => d.nombre === dia)?.fecha
+    const fechaSlotStr = fechaDiaObj
+      ? `${fechaDiaObj.getFullYear()}-${String(fechaDiaObj.getMonth()+1).padStart(2,'0')}-${String(fechaDiaObj.getDate()).padStart(2,'0')}`
+      : null
+
     return clases.filter(c => {
       const horaClase = c.hora?.slice(0,5)
       if (horaClase !== hora) return false
-      if (c.modalidad === 'Semanal') return c.dia === dia
-      if (c.modalidad === 'Promo' || c.modalidad === 'Cortesía') {
-        if (c.dia) return c.dia === dia
-        const fechaDia = diasSemana.find(d => d.nombre === dia)?.fecha
-        if (!fechaDia) return false
-        const y = fechaDia.getFullYear()
-        const m = String(fechaDia.getMonth()+1).padStart(2,'0')
-        const day = String(fechaDia.getDate()).padStart(2,'0')
-        return c.fecha_inicio === `${y}-${m}-${day}`
+      let enSlot = false
+      if (c.modalidad === 'Semanal') enSlot = c.dia === dia
+      else if (c.modalidad === 'Promo' || c.modalidad === 'Cortesía') {
+        if (c.dia) enSlot = c.dia === dia
+        else enSlot = fechaSlotStr ? c.fecha_inicio === fechaSlotStr : false
       }
-      if (c.modalidad === 'Clase única') {
-        const fechaDia = diasSemana.find(d => d.nombre === dia)?.fecha
-        if (!fechaDia) return false
-        const y = fechaDia.getFullYear()
-        const m = String(fechaDia.getMonth()+1).padStart(2,'0')
-        const day = String(fechaDia.getDate()).padStart(2,'0')
-        return c.fecha_inicio === `${y}-${m}-${day}`
+      else if (c.modalidad === 'Clase única') {
+        enSlot = fechaSlotStr ? c.fecha_inicio === fechaSlotStr : false
       }
-      return false
+      if (!enSlot) return false
+
+      // Filtrar jugadores con ausencia en esta fecha
+      if (fechaSlotStr) {
+        const insActivas = (c.inscripciones || []).filter(i => {
+          const ausencias = i.ausencias || []
+          return !ausencias.some(a => (a.fecha || a) === fechaSlotStr)
+        })
+        // Reemplazar inscripciones con solo las activas para este slot
+        c._insSlot = insActivas
+        // Si todas tienen ausencia, no mostrar el bloque
+        return insActivas.length > 0
+      }
+      c._insSlot = c.inscripciones || []
+      return true
     })
   }
 
@@ -423,7 +434,7 @@ export default function Agenda({ usuario }) {
                           </div>
                         )}
                         {slots.map(c => {
-                          const ins = c.inscripciones || []
+                          const ins = c._insSlot || c.inscripciones || []
                           const pagados = ins.filter(i => i.pagado).length
                           return (
                             <div key={c.id}
